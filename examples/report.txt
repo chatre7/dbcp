@@ -1,0 +1,87 @@
+MSSQL SCHEMA DIFF
+Scope: user tables, column names/types/nullability, primary-key columns/order/direction/clustering,
+       SQL stored procedures/views/functions (definition, ANSI_NULLS, QUOTED_IDENTIFIER), synonym targets.
+SQL comparison mode: normalized (CRLF normalized to LF).
+Declaration verbs CREATE/ALTER/CREATE OR ALTER and spacing before the module type are normalized.
+Other formatting, comments, literals and identifier case remain significant.
+SQL hunks show original definitions with 3 context lines; ignored header changes may appear alongside real changes.
+Encrypted/unreadable definitions and CLR/extended modules cause an error, not a no-diff result.
+Not compared: row data, column order, defaults, identity, computed expressions, collation,
+              non-PK indexes, FK/CHECK/UNIQUE constraints, constraint names, triggers, permissions,
+              type/XML schema definitions and other advanced table/column properties.
+Names are case-sensitive. Avoid schema changes during comparison.
+Tables: source=3 destination=3
+Procedures/views/functions/synonyms: source=5 destination=5
+
+[TABLE_ONLY_IN_SOURCE] "[dbo].[AuditEvents]"
+  source:      "present"
+  destination: "<missing>"
+
+[COLUMN_TYPE] "[dbo].[Customers].[DisplayName]"
+  source:      "nvarchar(150)"
+  destination: "nvarchar(100)"
+
+[COLUMN_NULLABILITY] "[dbo].[Customers].[DisplayName]"
+  source:      "NOT NULL"
+  destination: "NULL"
+
+[COLUMN_ONLY_IN_SOURCE] "[dbo].[Customers].[Email]"
+  source:      "nvarchar(254) NULL"
+  destination: "<missing>"
+
+[PRIMARY_KEY] "[dbo].[Customers]"
+  source:      "CLUSTERED ([CustomerId] ASC)"
+  destination: "NONCLUSTERED ([CustomerId] DESC)"
+
+[TABLE_ONLY_IN_DESTINATION] "[dbo].[LegacyImports]"
+  source:      "<missing>"
+  destination: "present"
+
+[VIEW_DEFINITION] "[dbo].[ActiveCustomers]"
+--- source "[dbo].[ActiveCustomers]"
++++ destination "[dbo].[ActiveCustomers]"
+@@ -1,5 +1,4 @@
+ CREATE VIEW dbo.ActiveCustomers
+ AS
+ SELECT CustomerId, DisplayName
+-FROM dbo.Customers
+-WHERE IsActive = 1;
++FROM dbo.Customers;
+
+[FUNCTION_DEFINITION] "[dbo].[CalculateDiscount]"
+--- source "[dbo].[CalculateDiscount]"
++++ destination "[dbo].[CalculateDiscount]"
+@@ -2,5 +2,5 @@
+ RETURNS decimal(12,2)
+ AS
+ BEGIN
+-    RETURN ROUND(@Amount * 0.10, 2);
++    RETURN ROUND(@Amount * 0.05, 2);
+ END;
+
+[SYNONYM_TARGET] "[dbo].[CustomerDirectory]"
+  source:      "[dbo].[ActiveCustomers]"
+  destination: "[dbo].[Customers]"
+
+[STORED_PROCEDURE_DEFINITION] "[dbo].[GetCustomer]"
+--- source "[dbo].[GetCustomer]"
++++ destination "[dbo].[GetCustomer]"
+@@ -2,7 +2,7 @@
+ AS
+ BEGIN
+     SET NOCOUNT ON;
+-    SELECT CustomerId, DisplayName, Email
++    SELECT CustomerId, DisplayName
+     FROM dbo.Customers
+     WHERE CustomerId = @CustomerId;
+ END;
+
+[STORED_PROCEDURE_ONLY_IN_DESTINATION] "[dbo].[OldImportReport]"
+  source:      "<missing>"
+  destination: "present"
+
+[STORED_PROCEDURE_ONLY_IN_SOURCE] "[dbo].[RecordAudit]"
+  source:      "present"
+  destination: "<missing>"
+
+Summary: 12 difference(s).

@@ -17,6 +17,21 @@ CLI ภาษา Go สำหรับเปรียบเทียบ schema �
 
 SQL definition ที่เปลี่ยนจะแสดงเป็น unified diff พร้อม context 3 บรรทัด รายงาน HTML เป็นไฟล์ standalone เปิดแบบ offline ได้
 
+## รายงานตัวอย่าง
+
+ตัวอย่างเหล่านี้สร้างผ่าน CLI จริงด้วย `-sql-mode normalized` จาก schema สมมติ ไม่มีข้อมูลหรือ connection credentials ของระบบจริง และเปิดดูได้โดยไม่ต้องเชื่อมต่อ SQL Server:
+
+- [รายงานข้อความ — examples/report.txt](examples/report.txt): อ่านใน GitHub หรือ text editor ได้ทันที
+- [รายงาน HTML — examples/report.html](examples/report.html): ดาวน์โหลดหรือ clone แล้วเปิดด้วย browser; ไม่ต้องมี web server หรืออินเทอร์เน็ต GitHub จะแสดง source ของไฟล์ ไม่ใช่หน้า report ที่ render แล้ว
+
+```powershell
+Start-Process .\examples\report.html
+```
+
+ตัวอย่างมี **12 differences** ครอบคลุมตารางและ stored procedure ที่มีเฉพาะฝั่งใดฝั่งหนึ่ง, ชนิดข้อมูล/nullability/คอลัมน์ที่ขาด, primary key, SQL definition ของ procedure/view/function และ target ของ synonym ส่วนตาราง `dbo.Orders` เหมือนกันทั้งสองฝั่ง จึงไม่ปรากฏเป็นรายการความต่าง
+
+ใน SQL unified diff บรรทัด `-` คือข้อความฝั่ง **source** และ `+` คือข้อความฝั่ง **destination** ตามหัวข้อ `--- source` / `+++ destination` รายงานนี้ไม่ใช่ migration script และไม่ควรนำไปรันเป็น SQL
+
 ## ความต้องการ
 
 - Go **1.25.0 ขึ้นไป** สำหรับ build จาก source; หากใช้ executable ที่ build แล้ว ไม่ต้องติดตั้ง Go
