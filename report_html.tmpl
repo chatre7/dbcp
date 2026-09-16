@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>MSSQL schema comparison — {{len .Differences}} difference(s)</title>
+<style>
+:root {
+  color-scheme: light;
+  --canvas: #f3f6f8;
+  --paper: #ffffff;
+  --ink: #172d3d;
+  --muted: #526572;
+  --rule: #d7e0e5;
+  --accent: #006a78;
+  --accent-wash: #eaf4f6;
+  --removed: #8e2633;
+  --removed-wash: #fff0f1;
+  --added: #17603d;
+  --added-wash: #edf8f1;
+  --warning: #7a4b0a;
+  --warning-wash: #fff5df;
+  --code: "Cascadia Code", "Consolas", "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: 1rem; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 1rem/1.6 "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1120px; margin: 32px auto; padding: 40px 48px; background: var(--paper); }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: clamp(1.75rem, 4vw, 2.25rem); line-height: 1.2; font-weight: 650; }
+h2 { font-size: 1.25rem; line-height: 1.4; }
+h3 { font-size: 1rem; line-height: 1.6; min-width: 0; overflow-wrap: anywhere; }
+code, pre { font-family: var(--code); }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+.subtitle { margin-top: 8px; color: var(--muted); }
+nav { display: flex; gap: 16px; flex-wrap: wrap; }
+nav a { display: inline-flex; align-items: center; min-height: 44px; }
+.status { margin-top: 24px; padding: 12px 16px; color: var(--warning); background: var(--warning-wash); }
+.status.equal { color: var(--added); background: var(--added-wash); }
+.status strong { font-weight: 650; }
+.overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; margin: 24px 0 40px; align-items: start; }
+.inventory { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.inventory caption { text-align: left; font-size: 1rem; font-weight: 650; padding-bottom: 8px; }
+.inventory th, .inventory td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: right; font-variant-numeric: tabular-nums; }
+.inventory th:first-child { padding-left: 0; text-align: left; }
+.inventory th { font-weight: 600; }
+.inventory tbody th { color: var(--muted); font-weight: 400; }
+.mode { font-size: .875rem; color: var(--muted); }
+.mode p + p { margin-top: 8px; }
+.mode strong { color: var(--ink); }
+.mode code { color: var(--accent); font-size: .875rem; }
+.section-heading { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+.section-heading p { color: var(--muted); font-size: .875rem; }
+.change { padding: 24px 0; border-bottom: 1px solid var(--rule); min-width: 0; }
+.change-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px 24px; margin-bottom: 12px; }
+.kind { color: var(--muted); font-size: .75rem; font-weight: 600; overflow-wrap: anywhere; text-align: right; }
+.values { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; margin: 0; }
+.values > div { min-width: 0; }
+.values dt { font-size: .75rem; font-weight: 650; margin-bottom: 4px; color: var(--muted); }
+.values dd { margin: 0; }
+.values pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .875rem; line-height: 1.6; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: .75rem; margin: 0 0 8px; color: var(--muted); }
+.legend .source { color: var(--removed); }
+.legend .destination { color: var(--added); }
+.sql-diff { margin: 0; padding: 8px 0; overflow-x: auto; background: var(--canvas); font-size: .8125rem; line-height: 1.7; tab-size: 4; }
+.sql-diff code { display: block; min-width: max-content; }
+.diff-line { display: block; padding: 0 12px; min-height: 1.7em; }
+.diff-line.removed { color: var(--removed); background: var(--removed-wash); }
+.diff-line.added { color: var(--added); background: var(--added-wash); }
+.diff-line.hunk { color: var(--accent); background: var(--accent-wash); }
+.diff-line.file, .diff-line.note { color: var(--muted); }
+.empty { padding: 24px 0; max-width: 70ch; color: var(--muted); }
+.scope { margin-top: 40px; font-size: .875rem; color: var(--muted); max-width: 78ch; }
+.scope h2 { color: var(--ink); margin-bottom: 12px; }
+.scope p + p { margin-top: 12px; }
+.scope strong { color: var(--ink); }
+footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--rule); color: var(--muted); font-size: .75rem; }
+@media (max-width: 700px) {
+  main { margin: 0; padding: 24px 16px; }
+  .heading { flex-direction: column; gap: 8px; }
+  .overview { grid-template-columns: minmax(0, 1fr); gap: 24px; margin-bottom: 32px; }
+  .change-heading { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .kind { text-align: left; }
+  .values { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+}
+@media print {
+  body { background: var(--paper); }
+  main { margin: 0; max-width: none; padding: 0; }
+  nav { display: none; }
+  .sql-diff { overflow: visible; white-space: pre-wrap; }
+  .sql-diff code { min-width: 0; }
+  .diff-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .change-heading { break-after: avoid; }
+}
+</style>
+</head>
+<body>
+<main id="top">
+<header>
+  <div class="heading">
+    <div>
+      <h1>Schema comparison</h1>
+      <p class="subtitle">Microsoft SQL Server · Source / destination</p>
+    </div>
+    <nav aria-label="Report sections"><a href="#differences">Differences</a><a href="#scope">Scope</a></nav>
+  </div>
+  {{if .Differences}}<p class="status"><strong>{{len .Differences}} difference(s) found.</strong> Review the source and destination values below.</p>
+  {{else}}<p class="status equal"><strong>No differences found within the comparison scope.</strong></p>{{end}}
+  <div class="overview">
+    <table class="inventory">
+      <caption>Objects inspected</caption>
+      <thead><tr><th scope="col">Object group</th><th scope="col">Source</th><th scope="col">Destination</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Tables</th><td>{{.SourceTables}}</td><td>{{.DestinationTables}}</td></tr>
+        <tr><th scope="row">Procedures, views, functions &amp; synonyms</th><td>{{.SourceObjects}}</td><td>{{.DestinationObjects}}</td></tr>
+      </tbody>
+    </table>
+    <div class="mode">
+      <p><strong>SQL comparison mode:</strong> <code>{{.Mode}}</code></p>
+      {{if .Normalized}}<p>CREATE, ALTER and CREATE OR ALTER, including spacing before the module type, are normalized. Other text remains significant.</p>
+      {{else}}<p>SQL definitions are compared as text. Formatting, comments and declaration differences remain significant.</p>{{end}}
+      <p>Both modes normalize CRLF to LF. This report is read-only; no schema changes are applied.</p>
+    </div>
+  </div>
+</header>
+<section id="differences" aria-labelledby="differences-heading">
+  <div class="section-heading"><h2 id="differences-heading">Differences</h2><p>{{len .Differences}} item(s)</p></div>
+  {{range .Differences}}
+  <section class="change" aria-labelledby="change-{{.Index}}">
+    <div class="change-heading"><h3 id="change-{{.Index}}"><code>{{.Object}}</code></h3><span class="kind">{{.Kind}}</span></div>
+    {{if .SQL}}
+    <div class="legend"><span class="source">− Source lines</span><span class="destination">+ Destination lines</span><span>3 context lines · Original line numbers</span></div>
+    <pre class="sql-diff" tabindex="0" role="region" aria-label="SQL diff for {{.Object}}"><code>{{range .Lines}}<span class="diff-line {{.Class}}">{{.Text}}</span>{{end}}</code></pre>
+    {{else}}
+    <dl class="values"><div><dt>Source</dt><dd><pre>{{.Source}}</pre></dd></div><div><dt>Destination</dt><dd><pre>{{.Destination}}</pre></dd></div></dl>
+    {{end}}
+  </section>
+  {{else}}
+  <p class="empty">The inspected objects match for the checks listed below. This does not mean that row data or every database property is identical.</p>
+  {{end}}
+</section>
+<section id="scope" class="scope" aria-labelledby="scope-heading">
+  <h2 id="scope-heading">Scope and interpretation</h2>
+  <p><strong>Compared:</strong> user tables; column names, types and nullability; primary-key columns, order, direction and clustering; SQL procedure, view and function definitions with ANSI_NULLS and QUOTED_IDENTIFIER; synonym target names.</p>
+  <p><strong>Not compared:</strong> row data, column order, defaults, identity, computed expressions, collation, non-PK indexes, FK/CHECK/UNIQUE constraints, constraint names, triggers, permissions, type/XML schema definitions and other advanced properties.</p>
+  <p>Names are case-sensitive. SQL hunks show the original definitions. In normalized mode, ignored declaration changes can appear alongside other differences. Synonym targets are compared by name, not by connecting to the referenced object.</p>
+  <p>Encrypted or unreadable definitions and CLR/extended modules cause an error rather than being silently skipped. Database-level VIEW DEFINITION is required; object-level DENY can hide metadata. Avoid concurrent schema changes because the databases are read sequentially.</p>
+</section>
+<footer>Generated by mssql-batch-compare. This file works offline with no scripts or external assets. SQL definitions may contain sensitive values; share the report accordingly.</footer>
+</main>
+</body>
+</html>
