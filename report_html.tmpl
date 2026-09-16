@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<title>MSSQL schema comparison — {{len .Differences}} difference(s)</title>
+<title>MSSQL schema {{if .History}}history{{else}}comparison{{end}} — {{if and .History .History.Baseline}}baseline captured{{else}}{{len .Differences}} difference(s){{end}}</title>
 <style>
 :root {
   color-scheme: light;
@@ -79,6 +79,12 @@ nav a { display: inline-flex; align-items: center; min-height: 32px; }
 .scope h2 { color: var(--ink); margin-bottom: 8px; }
 .scope p + p { margin-top: 8px; }
 .scope strong { color: var(--ink); font-weight: 600; }
+.history { margin: 12px 0; font-size: .8125rem; overflow-wrap: anywhere; }
+.history p + p { margin-top: 4px; }
+.object-times { margin-top: 24px; }
+.timestamps { table-layout: fixed; }
+.timestamps th, .timestamps td { text-align: left; overflow-wrap: anywhere; }
+.timestamps .kind { display: block; text-align: left; }
 footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--rule); color: var(--muted); font-size: .75rem; }
 @media (max-width: 900px) {
   main { padding: 20px; }
@@ -115,13 +121,23 @@ footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--rule);
 <header>
   <div class="heading">
     <div>
-      <h1>Schema comparison</h1>
-      <p class="subtitle">Microsoft SQL Server · Source / destination</p>
+      <h1>{{if .History}}Schema history{{else}}Schema comparison{{end}}</h1>
+      <p class="subtitle">Microsoft SQL Server · {{if .History}}Previous snapshot / current schema{{else}}Source / destination{{end}}</p>
     </div>
-    <nav aria-label="Report sections"><a href="#differences">Differences</a><a href="#scope">Scope</a></nav>
+    <nav aria-label="Report sections"><a href="#differences">Differences</a>{{if .History}}<a href="#object-times">Object times</a>{{end}}<a href="#scope">Scope</a></nav>
   </div>
-  {{if .Differences}}<p class="status"><strong>{{len .Differences}} difference(s) found.</strong> Review the source and destination values below.</p>
+  {{if and .History .History.Baseline}}<p class="status"><strong>Baseline captured.</strong> No earlier snapshot exists; changes were not evaluated.</p>
+  {{else if .Differences}}<p class="status"><strong>{{len .Differences}} difference(s) found.</strong> Review the source and destination values below.</p>
   {{else}}<p class="status equal"><strong>No differences found within the comparison scope.</strong></p>{{end}}
+  {{with .History}}
+  <div class="history">
+    <p><strong>Database:</strong> <code>{{.Database}}</code> · <strong>Server:</strong> <code>{{.Server}}</code></p>
+    {{if not .Baseline}}<p><strong>Previous snapshot (UTC):</strong> {{.PreviousAt}}</p>{{end}}
+    <p><strong>Current snapshot (UTC):</strong> {{.CurrentAt}}</p>
+    <p>Source = previous snapshot; destination = current schema. Added and removed objects are relative to the previous snapshot.</p>
+    <p>Snapshots show net schema differences between captures, not a complete DDL audit or who made each change.</p>
+  </div>
+  {{end}}
   <div class="overview">
     <table class="inventory">
       <caption>Objects inspected</caption>
@@ -152,16 +168,30 @@ footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--rule);
     {{end}}
   </section>
   {{else}}
-  <p class="empty">The inspected objects match for the checks listed below. This does not mean that row data or every database property is identical.</p>
+  {{if and .History .History.Baseline}}<p class="empty">This capture is the starting point. Run snapshot mode again to compare against it. No row data was stored.</p>
+  {{else}}<p class="empty">The inspected objects match for the checks listed below. This does not mean that row data or every database property is identical.</p>{{end}}
   {{end}}
 </section>
+{{with .History}}
+<section id="object-times" class="object-times" aria-labelledby="object-times-heading">
+  <div class="section-heading"><h2 id="object-times-heading">Object modification times</h2><p>{{len .Objects}} current object(s)</p></div>
+  <p class="subtitle">SQL Server local metadata times, newest first. Table/view timestamps can change for index DDL even when the compared schema is unchanged. These are not row-change times or a complete DDL history.</p>
+  <table class="inventory timestamps">
+    <caption>Current objects — removed objects appear in Differences</caption>
+    <thead><tr><th scope="col">Object / type</th><th scope="col">Created</th><th scope="col">Last modified</th></tr></thead>
+    <tbody>{{range .Objects}}
+      <tr><th scope="row"><code>{{.Object}}</code><span class="kind">{{.Type}}</span></th><td>{{.CreatedAt}}</td><td>{{.ModifiedAt}}</td></tr>
+    {{else}}<tr><td colspan="3">No objects in the comparison scope.</td></tr>{{end}}</tbody>
+  </table>
+</section>
+{{end}}
 <section id="scope" class="scope" aria-labelledby="scope-heading">
   <h2 id="scope-heading">Scope and interpretation</h2>
   <p><strong>Compared:</strong> user tables; column names, types and nullability; primary-key columns, order, direction and clustering; SQL procedure, view and function definitions with ANSI_NULLS and QUOTED_IDENTIFIER; synonym target names; CLR scalar/table-valued functions (FS/FT) by assembly identity/permission set/main-DLL SHA-256, class/method, ordered parameter/default/return signatures, EXECUTE AS and NULL ON NULL INPUT.</p>
   <p><strong>Not compared:</strong> row data, table column order/defaults/identity/computed expressions/collation, non-PK indexes, FK/CHECK/UNIQUE constraints, constraint names, triggers, object GRANT/DENY permissions, type/XML schema definitions and other advanced properties. CLR dependency assemblies, ancillary assembly files and instance-level CLR settings are excluded.</p>
   <p>Names are case-sensitive. SQL hunks show the original definitions. In normalized mode, ignored declaration changes can appear alongside other differences. Synonym targets are compared by name, not by connecting to the referenced object.</p>
   <p>CLR metadata is compared independently of SQL mode; it is not a T-SQL definition diff. Missing or changed CLR functions require manual assembly/function migration.</p>
-  <p>Encrypted or unreadable SQL definitions/CLR metadata and unsupported CLR procedures (PC), aggregates (AF) or extended procedures (X) cause an error rather than being silently skipped. Database-level VIEW DEFINITION and readable CLR assembly bytes are required; object-level DENY can hide metadata. Avoid concurrent schema changes because the databases are read sequentially.</p>
+  <p>Encrypted or unreadable SQL definitions/CLR metadata and unsupported CLR procedures (PC), aggregates (AF) or extended procedures (X) cause an error rather than being silently skipped. Database-level VIEW DEFINITION and readable CLR assembly bytes are required; object-level DENY can hide metadata. {{if .History}}Avoid concurrent schema changes: metadata is read in multiple queries, not a transactionally consistent snapshot.{{else}}Avoid concurrent schema changes because the databases are read sequentially.{{end}}</p>
 </section>
 <footer>Generated by mssql-batch-compare. This file works offline with no scripts or external assets. SQL definitions may contain sensitive values; share the report accordingly.</footer>
 </main>

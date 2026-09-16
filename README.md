@@ -1,6 +1,6 @@
 # MSSQL Batch Compare
 
-CLI ภาษา Go สำหรับเปรียบเทียบ schema ระหว่าง SQL Server สองฐานข้อมูล แสดงความต่างเป็นข้อความหรือรายงาน HTML และเลือกสร้าง migration script เพื่อปรับ **destination ให้ตรงกับ source** ในขอบเขตที่รองรับ
+CLI ภาษา Go สำหรับเปรียบเทียบ schema ระหว่าง SQL Server สองฐานข้อมูล หรือเทียบฐานข้อมูลเดียวกับ snapshot รอบก่อน แสดงความต่างเป็นข้อความหรือรายงาน HTML และเลือกสร้าง migration script ในโหมดเปรียบเทียบสองฐานข้อมูลเพื่อปรับ **destination ให้ตรงกับ source** ในขอบเขตที่รองรับ
 
 โปรแกรมอ่าน metadata เท่านั้น ไม่แก้ไขฐานข้อมูลและไม่รัน migration ให้อัตโนมัติ
 
@@ -111,6 +111,116 @@ MSSQL_SOURCE_DSN='server=HOST\INSTANCE;database=SourceDB;encrypt=true;TrustServe
 
 รายงานจะถูกส่งไปที่ stdout ด้วย แม้ระบุ `-out` แล้วก็ตาม การใช้ชื่อไฟล์ `.html` เพียงอย่างเดียวไม่เปลี่ยน format ต้องระบุ `-format html`
 
+## เปรียบเทียบหลายคู่แบบ batch
+
+ตัวอย่าง [examples/batch/run.ps1](examples/batch/run.ps1) ใช้ CLI เดิมรัน **ทีละคู่** บน Windows PowerShell 5.1 หรือ PowerShell 7 ไม่ใช่ flag batch ใหม่ใน executable แต่ละโฟลเดอร์ใต้ `runs` คือหนึ่งคู่ Source → Destination หากต้องการ source เดียวเทียบหลาย destination ให้ใช้ source DSN เดียวกันในแต่ละคู่
+
+### เตรียมคู่เปรียบเทียบ
+
+หลัง build executable แล้ว รันจาก root ของโปรเจกต์เพื่อสร้างตัวอย่าง ERP และ CRM โดยไม่ทับ `.env` ที่มีอยู่:
+
+```powershell
+foreach ($pair in @('erp', 'crm')) {
+    New-Item -ItemType Directory -Path ".\runs\$pair" -Force | Out-Null
+    if (-not (Test-Path -LiteralPath ".\runs\$pair\.env")) {
+        Copy-Item ".\examples\batch\$pair.env.example" ".\runs\$pair\.env"
+    }
+}
+```
+
+แก้ `runs/erp/.env` และ `runs/crm/.env` ให้เป็น connection จริงของแต่ละคู่ ตัวอย่างปิด migration ไว้ หากต้องการสร้าง SQL ให้ตั้ง `MSSQL_GENERATE_MIGRATION=true` และคง `MSSQL_MIGRATION_OUT='migration.sql'` เป็น relative path เพื่อแยกไฟล์แต่ละคู่
+
+```text
+runs/
+├── erp/
+│   └── .env       # ERP_Dev → ERP_Prod
+└── crm/
+    └── .env       # CRM_Dev → CRM_Prod
+```
+
+เพิ่มคู่ใหม่ได้โดยสร้างโฟลเดอร์พร้อม `.env` ใต้ `runs` สคริปต์จะอ่านทุกโฟลเดอร์ย่อยโดยเรียงชื่อ ไม่อ่าน `.env` ของ root และไม่ค้นหาโฟลเดอร์ซ้อนหลายระดับ
+
+### รัน batch และอ่านผล
+
+```powershell
+powershell.exe -NoProfile -File .\examples\batch\run.ps1
+$LASTEXITCODE
+Start-Process .\runs\erp\diff.html
+```
+
+ใช้ `pwsh` แทน `powershell.exe` ได้ สคริปต์ตั้ง `-sql-mode normalized -format html -timeout 3m` ต่อคู่ เขียน `diff.html` ในโฟลเดอร์ของคู่นั้น และแสดงสรุปพร้อมบันทึก `runs/summary.csv` ที่มี `Pair`, `Status`, `ExitCode`, `Report` โดยไม่บันทึก DSN
+
+- `Equal` / code `0`: ไม่พบความต่าง
+- `Changed` / code `1`: พบความต่าง ไม่ใช่การรันล้มเหลว
+- `Error`: รันไม่สำเร็จหรือไม่มี `.env`; ยังรันคู่ถัดไป ช่อง `Report` ว่างเพื่อไม่ชี้ไปยังรายงานเก่าที่อาจค้างอยู่
+- Exit code รวมเป็น `2` หากมี error, มิฉะนั้นเป็น `1` หากมีความต่างอย่างน้อยหนึ่งคู่ หรือ `0` หากทุกคู่เท่ากัน ไม่มีคู่ให้รันถือเป็น error
+
+สคริปต์ล้าง environment variables ทั้งสี่ `MSSQL_SOURCE_DSN`, `MSSQL_DESTINATION_DSN`, `MSSQL_GENERATE_MIGRATION`, `MSSQL_MIGRATION_OUT` **เฉพาะใน child process** เพื่อให้แต่ละคู่ใช้ `.env` ของตัวเอง ไม่รับ credentials หรือ migration settings ที่ค้างจาก shell และไม่เปลี่ยน environment/current directory ของผู้เรียก
+
+เปลี่ยนตำแหน่ง executable หรือโฟลเดอร์คู่เปรียบเทียบได้:
+
+```powershell
+powershell.exe -NoProfile -File .\examples\batch\run.ps1 `
+    -Executable 'D:\tools\mssql-batch-compare.exe' `
+    -PairsDirectory 'D:\private\db-pairs'
+```
+
+`/runs/` ถูก ignore ทั้งโฟลเดอร์เพื่อป้องกัน credentials, SQL definitions และ migration scripts หลุดเข้า Git หากใช้ path อื่นต้องกำหนดการป้องกันเอง การรันซ้ำใช้ชื่อไฟล์เดิม; หากคู่ใด error หรือปิด migration ไฟล์เก่าอาจยังอยู่ ให้ดูสถานะรอบล่าสุดก่อนใช้ผลลัพธ์
+
+Batch ไม่ execute migration และไม่จัด dependency ข้ามฐานข้อมูล ต้องตรวจแต่ละ script และเลือก destination ให้ถูกต้องก่อนรันเอง
+
+## ติดตาม schema ด้วย snapshot
+
+ใช้ `-snapshot` เพื่ออ่านฐานข้อมูลจาก `MSSQL_SOURCE_DSN` แล้วเทียบกับ snapshot ล่าสุดของ **server/database เดียวกัน** ไม่ใช้ `MSSQL_DESTINATION_DSN` และต้องตั้ง `MSSQL_GENERATE_MIGRATION=false` โหมดนี้ไม่สร้างหรือรัน migration และไม่อ่าน row data
+
+```powershell
+.\mssql-batch-compare.exe -snapshot -sql-mode normalized -format html -timeout 3m
+```
+
+ผลลัพธ์ถูกเก็บใต้ `data/ddmmyyhhmmss/` อ้างอิง current working directory เช่น:
+
+```text
+data/
+├── 010726093015/                  # ตัวอย่าง: 1 ก.ค. 2026 เวลา 09:30:15
+│   └── <database-id>/
+│       ├── snapshot.json
+│       └── report.html
+└── 020726093020/
+    └── <database-id>/
+        ├── snapshot.json
+        └── report.html
+```
+
+- `ddmmyyhhmmss` ใช้นาฬิกาท้องถิ่นของเครื่องที่รัน; เวลา capture ใน JSON/รายงานเก็บเป็น UTC
+- `<database-id>` คือ SHA-256 ของชื่อ server/database ที่อ่านจาก SQL Server ไม่ใช้ DSN หรือ credentials ฐานข้อมูลต่างกันจึงไม่ปะปนกัน แม้อยู่ในโฟลเดอร์เวลาเดียวกัน
+- `snapshot.json` เก็บ metadata/SQL definitions/CLR fingerprints ในขอบเขต comparator เดิม ไม่ใช่ database backup และไม่มี row data, DLL binary หรือ connection string
+- รอบแรกสร้าง baseline และคืน `0` โดยแจ้งชัดเจนว่ายังไม่ได้เปรียบเทียบย้อนหลัง รอบถัดไปคืน `0` เมื่อไม่ต่าง หรือ `1` เมื่อพบความต่าง
+- รายงานใช้ **Source = snapshot ก่อนหน้า / Destination = schema ปัจจุบัน** โดย `ADDED` และ `REMOVED` อ้างอิงจากรอบก่อน มีทั้ง SQL diff และเวลา `create_date`/`modify_date` ของ objects ปัจจุบัน เรียงล่าสุดก่อน
+- เลือก baseline จาก capture timestamp ในไฟล์ ไม่เรียงชื่อโฟลเดอร์แบบข้อความ จึงรองรับการข้ามเดือน/ปี
+- ทุกครั้งที่สำเร็จเก็บ snapshot ใหม่ รวมถึงรอบที่ไม่มีความต่าง หากจับฐานข้อมูลเดียวกันซ้ำภายในวินาทีเดียวกันจะ error โดยไม่ทับ snapshot เดิม ให้รันใหม่ในวินาทีถัดไป
+- ไฟล์ snapshot เป็นตัวบอกว่ารอบนั้นบันทึกครบแล้ว หาก baseline เสียหรือเป็น format version ที่ไม่รองรับ จะ error ไม่เริ่ม baseline ใหม่เงียบ ๆ
+- `-format text` สร้าง `report.txt` แทน HTML; `-out` เป็นสำเนารายงานเพิ่มเติมนอก `-data-dir` ไม่จำเป็นต้องระบุเพื่อเก็บประวัติ
+
+เปลี่ยนที่เก็บได้ด้วย `-data-dir 'D:\private\schema-history'` รักษาโฟลเดอร์นี้ไว้ระหว่างรอบ; หากลบประวัติทั้งหมดหรือเปลี่ยนชื่อ server/database จะเริ่ม baseline ใหม่ `/data/` ในโปรเจกต์ถูก ignore แล้ว หากใช้ path อื่นต้องป้องกันไฟล์เอง เพราะ SQL definitions อาจมีข้อมูลอ่อนไหวฝังอยู่
+
+### Snapshot หลายฐานข้อมูล
+
+ใช้ config แต่ละโฟลเดอร์ใน `runs` ตามตัวอย่าง batch ข้างต้น โดยตั้ง source เป็นฐานข้อมูลที่ต้องการติดตาม และปิด migration ทุกโฟลเดอร์:
+
+```powershell
+powershell.exe -NoProfile -File .\examples\batch\run.ps1 -Snapshot
+```
+
+สคริปต์ส่ง history root แบบ absolute path ไปยัง CLI จึงรวมประวัติที่ `<project>/data/ddmmyyhhmmss/<database-id>/` ไม่กระจายไปอยู่ใต้ `runs/<คู่>/data` แต่ละฐานข้อมูลใช้เวลาที่ capture ของตัวเอง เลือก root อื่นได้ด้วย `-DataDirectory 'D:\private\schema-history'`
+
+สำเนารายงานล่าสุดยังอยู่ที่ `runs/<คู่>/diff.html` และมี `runs/summary.csv` เหมือน batch ปกติ สถานะ `Saved` หมายถึงเก็บ baseline หรือไม่พบความต่าง, `Changed` หมายถึงมีความต่าง, `Error` หมายถึงรันไม่สำเร็จ หากหลาย config ชี้ source เดียวกันจะใช้ history เดียวกัน
+
+### ขอบเขตของประวัติ
+
+Snapshot แสดงความต่างสุทธิระหว่างรอบ ไม่ใช่ DDL audit: ไม่รู้ว่าใครแก้หรือเวลาแก้ที่แน่นอน ไม่เห็น object ที่สร้างแล้วลบระหว่างสองรอบ และไม่เห็นการแก้แล้วเปลี่ยนกลับก่อน capture `modify_date` เป็นเวลา metadata ของ SQL Server ซึ่งไม่มี timezone และอาจเปลี่ยนจาก index DDL โดย schema ในขอบเขตที่เปรียบเทียบยังเหมือนเดิม จึงใช้เป็นข้อมูลประกอบ ไม่ใช้ตัดสินว่ามี schema diff
+
+Metadata ถูกอ่านหลาย query ไม่ใช่ transactionally consistent snapshot ควรหลีกเลี่ยง DDL ระหว่างรัน แม้โปรแกรมตรวจความสอดคล้องของรายชื่อ/ชนิด objects แล้ว หากต้องการ log ทุกเหตุการณ์พร้อมผู้แก้ ต้องติดตั้งระบบ audit แยกต่างหาก
+
 ## Configuration และ CLI options
 
 ### Environment / `.env`
@@ -118,7 +228,7 @@ MSSQL_SOURCE_DSN='server=HOST\INSTANCE;database=SourceDB;encrypt=true;TrustServe
 | ตัวแปร | ค่าเริ่มต้น | ความหมาย |
 | --- | --- | --- |
 | `MSSQL_SOURCE_DSN` | ไม่มี; จำเป็นต้องระบุ | Connection string ของ source |
-| `MSSQL_DESTINATION_DSN` | ไม่มี; จำเป็นต้องระบุ | Connection string ของ destination |
+| `MSSQL_DESTINATION_DSN` | ไม่มี; จำเป็นในโหมดเทียบสองฐานข้อมูล | Connection string ของ destination; ไม่ใช้ใน `-snapshot` |
 | `MSSQL_GENERATE_MIGRATION` | `false` | ใช้ `true` เพื่อสร้าง migration SQL |
 | `MSSQL_MIGRATION_OUT` | `migration.sql` | Path ของไฟล์ migration แยกจาก path รายงาน |
 
@@ -138,6 +248,8 @@ Remove-Item Env:MSSQL_GENERATE_MIGRATION
 | `-out <path>` | ไม่เขียนไฟล์ | บันทึกรายงานเพิ่มเติมจาก stdout; เขียนทับไฟล์เดิมเมื่อสำเร็จ |
 | `-sql-mode strict\|normalized` | `strict` | วิธีเปรียบเทียบ SQL definition |
 | `-timeout <duration>` | `1m` | เวลารวมสำหรับเชื่อมต่อและอ่าน schema เช่น `30s`, `2m` |
+| `-snapshot` | `false` | เทียบ source กับ schema snapshot ก่อนหน้าและเก็บรอบใหม่; ไม่สร้าง migration |
+| `-data-dir <path>` | `data` | Root ของ snapshot history; ใช้ใน `-snapshot` |
 | `-help` | — | แสดงวิธีใช้งาน |
 
 Path แบบ relative อ้างอิงจาก current working directory รูปแบบรายงาน, SQL mode, timeout และ path รายงานยังคงตั้งค่าผ่าน CLI ไม่ใช่ `.env`

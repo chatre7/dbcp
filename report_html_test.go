@@ -13,7 +13,11 @@ func TestHTMLReportTreatsDatabaseContentAsText(t *testing.T) {
 		{"STORED_PROCEDURE_DEFINITION", object, "SELECT N'" + payload + "';\n", "SELECT N'ข้อมูล';\n"},
 		{"SYNONYM_TARGET", object, `<img src=x onerror="alert(3)">`, "<missing>"},
 	}
-	report, err := renderHTMLReport(&schema{}, &schema{}, diffs, sqlModeStrict)
+	history := &snapshotReportContext{
+		Server: payload, Database: object, Baseline: true,
+		Objects: []objectTimestamp{{Schema: "dbo", Name: object, Type: "P", CreatedAt: payload, ModifiedAt: payload}},
+	}
+	report, err := renderHTMLReport(&schema{}, &schema{}, diffs, sqlModeStrict, history)
 	if err != nil {
 		t.Fatal(err)
 	}

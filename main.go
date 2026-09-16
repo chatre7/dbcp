@@ -26,8 +26,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	timeout := flags.Duration("timeout", 60*time.Second, "total connection and schema-read timeout, e.g. 30s or 2m")
 	modeFlag := flags.String("sql-mode", string(sqlModeStrict), "SQL definition comparison: strict or normalized")
 	format := flags.String("format", "text", "report format: text or html (self-contained, offline)")
+	snapshotMode := flags.Bool("snapshot", false, "compare MSSQL_SOURCE_DSN with its latest saved schema snapshot (no row data or migration)")
+	dataDir := flags.String("data-dir", "data", "snapshot history root; writes ddmmyyhhmmss/database-id folders")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: mssql-batch-compare [-out diff.txt] [-format text|html] [-timeout 60s] [-sql-mode strict|normalized]")
+		fmt.Fprintln(stderr, "       mssql-batch-compare -snapshot [-data-dir data] [-format text|html]")
+		fmt.Fprintln(stderr, "Snapshot mode needs only MSSQL_SOURCE_DSN; destination is ignored and migration must be disabled.")
+		fmt.Fprintln(stderr, "First capture saves a baseline (exit 0); later captures compare previous -> current schema.")
+		fmt.Fprintln(stderr, "History stores schema/SQL definitions, not row data or connection strings. Protect the data directory.")
+		fmt.Fprintln(stderr, "Folders use local time ddmmyyhhmmss; snapshot timestamps use UTC. Same-database/second collisions fail without overwriting.")
 		fmt.Fprintln(stderr, "\nRequired settings (environment variables or .env in the current working directory):")
 		fmt.Fprintln(stderr, "  MSSQL_SOURCE_DSN       source SQL Server connection string")
 		fmt.Fprintln(stderr, "  MSSQL_DESTINATION_DSN  destination SQL Server connection string")
@@ -96,6 +103,24 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
+	if *snapshotMode {
+		if strings.TrimSpace(config.sourceDSN) == "" {
+			return fail(fmt.Errorf("snapshot mode requires MSSQL_SOURCE_DSN"))
+		}
+		if config.generateMigration {
+			return fail(fmt.Errorf("snapshot mode does not generate migration; set MSSQL_GENERATE_MIGRATION=false"))
+		}
+		if strings.TrimSpace(*dataDir) == "" {
+			return fail(fmt.Errorf("-data-dir must not be empty"))
+		}
+		ctx, cancel := context.WithTimeout(ctx, *timeout)
+		defer cancel()
+		code, err := runSnapshot(ctx, config.sourceDSN, *dataDir, *output, *format, mode, stdout, stderr)
+		if err != nil {
+			return fail(err)
+		}
+		return code
+	}
 	if strings.TrimSpace(config.sourceDSN) == "" || strings.TrimSpace(config.destinationDSN) == "" {
 		return fail(fmt.Errorf("set both MSSQL_SOURCE_DSN and MSSQL_DESTINATION_DSN in the environment or .env"))
 	}
@@ -107,11 +132,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
-	source, err := loadSchema(ctx, config.sourceDSN, config.generateMigration)
+	source, err := loadSchema(ctx, config.sourceDSN, config.generateMigration, false)
 	if err != nil {
 		return fail(fmt.Errorf("source: %w", err))
 	}
-	destination, err := loadSchema(ctx, config.destinationDSN, config.generateMigration)
+	destination, err := loadSchema(ctx, config.destinationDSN, config.generateMigration, false)
 	if err != nil {
 		return fail(fmt.Errorf("destination: %w", err))
 	}
@@ -131,12 +156,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	var report string
 	if *format == "html" {
-		report, err = renderHTMLReport(source, destination, diffs, mode)
+		report, err = renderHTMLReport(source, destination, diffs, mode, nil)
 		if err != nil {
 			return fail(fmt.Errorf("render HTML report: %w", err))
 		}
 	} else {
-		report = renderReport(source, destination, diffs, mode)
+		report = renderReport(source, destination, diffs, mode, nil)
 	}
 	if *output != "" {
 		if err := os.WriteFile(*output, []byte(report), 0600); err != nil {

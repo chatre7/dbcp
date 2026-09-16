@@ -68,6 +68,7 @@ type schema struct {
 	tables    map[objectName]*table
 	objects   map[objectName]schemaObject
 	migration *migrationMetadata
+	snapshot  *snapshotMetadata
 }
 
 // One catalog query captures columns and ordered primary-key membership without
@@ -99,7 +100,7 @@ LEFT JOIN (
 ) AS pk ON pk.object_id = c.object_id AND pk.column_id = c.column_id
 WHERE t.is_ms_shipped = 0`
 
-func loadSchema(ctx context.Context, dsn string, withMigration bool) (*schema, error) {
+func loadSchema(ctx context.Context, dsn string, withMigration bool, withSnapshot bool) (*schema, error) {
 	config, err := msdsn.Parse(dsn)
 	if err != nil {
 		// DSN parser errors can contain credentials; do not echo them.
@@ -182,6 +183,12 @@ func loadSchema(ctx context.Context, dsn string, withMigration bool) (*schema, e
 	}
 	if withMigration {
 		result.migration, err = loadMigrationMetadata(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if withSnapshot {
+		result.snapshot, err = loadSnapshotMetadata(ctx, db, result)
 		if err != nil {
 			return nil, err
 		}

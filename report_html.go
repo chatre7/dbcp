@@ -34,11 +34,13 @@ type htmlReportData struct {
 	SourceObjects      int
 	DestinationObjects int
 	Differences        []htmlDifference
+	History            *snapshotReportContext
 }
 
-func renderHTMLReport(source, destination *schema, diffs []difference, mode sqlCompareMode) (string, error) {
+func renderHTMLReport(source, destination *schema, diffs []difference, mode sqlCompareMode, history *snapshotReportContext) (string, error) {
 	data := htmlReportData{
 		Mode: mode, Normalized: mode == sqlModeNormalized,
+		History:      history,
 		SourceTables: len(source.tables), DestinationTables: len(destination.tables),
 		SourceObjects: len(source.objects), DestinationObjects: len(destination.objects),
 		Differences: make([]htmlDifference, 0, len(diffs)),

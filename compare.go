@@ -82,9 +82,20 @@ func nullability(nullable bool) string {
 	return "NOT NULL"
 }
 
-func renderReport(source, destination *schema, diffs []difference, mode sqlCompareMode) string {
+func renderReport(source, destination *schema, diffs []difference, mode sqlCompareMode, history *snapshotReportContext) string {
 	var out strings.Builder
 	fmt.Fprintln(&out, "MSSQL SCHEMA DIFF")
+	if history != nil {
+		fmt.Fprintf(&out, "Database: %q on server %q\n", history.Database, history.Server)
+		fmt.Fprintf(&out, "Current snapshot (UTC): %s\n", history.CurrentAt)
+		if history.Baseline {
+			fmt.Fprintln(&out, "Baseline captured. No earlier snapshot exists; changes were not evaluated.")
+		} else {
+			fmt.Fprintf(&out, "Previous snapshot (UTC): %s\n", history.PreviousAt)
+		}
+		fmt.Fprintln(&out, "Source = previous snapshot; destination = current schema. ADDED/REMOVED are relative to the previous snapshot.")
+		fmt.Fprintln(&out, "Snapshots show net schema differences between captures, not a complete DDL audit or the author of changes.")
+	}
 	fmt.Fprintln(&out, "Scope: user tables, column names/types/nullability, primary-key columns/order/direction/clustering,")
 	fmt.Fprintln(&out, "       SQL stored procedures/views/functions (definition, ANSI_NULLS, QUOTED_IDENTIFIER), synonym targets.")
 	fmt.Fprintln(&out, "       CLR FS/FT functions (assembly identity/permission set/DLL SHA-256, class/method, signature, execution settings).")
@@ -113,10 +124,23 @@ func renderReport(source, destination *schema, diffs []difference, mode sqlCompa
 		fmt.Fprintf(&out, "[%s] %q\n  source:      %q\n  destination: %q\n\n",
 			d.kind, d.object, d.source, d.destination)
 	}
-	if len(diffs) == 0 {
+	if len(diffs) == 0 && (history == nil || !history.Baseline) {
 		fmt.Fprintln(&out, "No differences found within the comparison scope.")
 	}
-	fmt.Fprintf(&out, "Summary: %d difference(s).\n", len(diffs))
+	if history != nil && history.Baseline {
+		fmt.Fprintln(&out, "Summary: baseline captured; comparison not performed.")
+	} else {
+		fmt.Fprintf(&out, "Summary: %d difference(s).\n", len(diffs))
+	}
+	if history != nil {
+		fmt.Fprintln(&out, "\nOBJECT MODIFICATION TIMES (current objects, newest first)")
+		fmt.Fprintln(&out, "SQL Server local metadata times; not row-change times or a complete DDL history.")
+		fmt.Fprintln(&out, "Table/view timestamps can change for index DDL even when the compared schema is unchanged.")
+		for _, object := range history.Objects {
+			fmt.Fprintf(&out, "%q (%s) created=%s modified=%s\n",
+				object.Object(), object.Type, object.CreatedAt, object.ModifiedAt)
+		}
+	}
 	return out.String()
 }
 
