@@ -18,6 +18,8 @@ CLI ภาษา Go สำหรับเปรียบเทียบ schema �
 
 SQL definition ที่เปลี่ยนจะแสดงเป็น unified diff พร้อม context 3 บรรทัด รายงาน HTML เป็นไฟล์ standalone เปิดแบบ offline ได้
 
+รายงาน HTML จัด metadata เป็นแถวเปรียบเทียบ Source/Destination และแสดง SQL diff แบบเต็ม ลดช่องว่างให้กระชับโดยไม่ซ่อนรายละเอียด พร้อม layout สำหรับจอขนาดเล็กและการพิมพ์
+
 ## รายงานตัวอย่าง
 
 ตัวอย่างเหล่านี้สร้างผ่าน CLI จริงด้วย `-sql-mode normalized` จาก schema สมมติ ไม่มีข้อมูลหรือ connection credentials ของระบบจริง และเปิดดูได้โดยไม่ต้องเชื่อมต่อ SQL Server:
