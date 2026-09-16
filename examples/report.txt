@@ -1,14 +1,16 @@
 MSSQL SCHEMA DIFF
 Scope: user tables, column names/types/nullability, primary-key columns/order/direction/clustering,
        SQL stored procedures/views/functions (definition, ANSI_NULLS, QUOTED_IDENTIFIER), synonym targets.
+       CLR FS/FT functions (assembly identity/permission set/DLL SHA-256, class/method, signature, execution settings).
 SQL comparison mode: normalized (CRLF normalized to LF).
 Declaration verbs CREATE/ALTER/CREATE OR ALTER and spacing before the module type are normalized.
 Other formatting, comments, literals and identifier case remain significant.
 SQL hunks show original definitions with 3 context lines; ignored header changes may appear alongside real changes.
-Encrypted/unreadable definitions and CLR/extended modules cause an error, not a no-diff result.
-Not compared: row data, column order, defaults, identity, computed expressions, collation,
-              non-PK indexes, FK/CHECK/UNIQUE constraints, constraint names, triggers, permissions,
+Encrypted/unreadable SQL or CLR metadata and unsupported PC/AF/X modules cause an error, not a no-diff result.
+Not compared: row data, table column order/defaults/identity/computed expressions/collation,
+              non-PK indexes, FK/CHECK/UNIQUE constraints, constraint names, triggers, object GRANT/DENY permissions,
               type/XML schema definitions and other advanced table/column properties.
+CLR comparison excludes dependency assemblies, ancillary assembly files and instance-level CLR settings.
 Names are case-sensitive. Avoid schema changes during comparison.
 Tables: source=3 destination=3
 Procedures/views/functions/synonyms: source=5 destination=5

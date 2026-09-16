@@ -14,6 +14,7 @@ type schemaObject struct {
 	ansiNulls        bool
 	quotedIdentifier bool
 	target           string
+	clr              *clrFunction
 }
 
 func (o schemaObject) category() string {
@@ -22,7 +23,7 @@ func (o schemaObject) category() string {
 		return "STORED_PROCEDURE"
 	case "V":
 		return "VIEW"
-	case "FN", "IF", "TF":
+	case "FN", "IF", "TF", "FS", "FT":
 		return "FUNCTION"
 	case "SN":
 		return "SYNONYM"
@@ -52,6 +53,7 @@ func loadObjects(ctx context.Context, db *sql.DB) (map[objectName]schemaObject, 
 	defer rows.Close()
 
 	objects := make(map[objectName]schemaObject)
+	hasCLRFunctions := false
 	for rows.Next() {
 		var name objectName
 		var object schemaObject
@@ -68,6 +70,8 @@ func loadObjects(ctx context.Context, db *sql.DB) (map[objectName]schemaObject, 
 				return nil, fmt.Errorf("cannot read synonym target for %q", name.String())
 			}
 			object.target = target.String
+		case "FS", "FT":
+			hasCLRFunctions = true
 		case "P", "RF", "V", "FN", "IF", "TF":
 			if !definition.Valid || !ansiNulls.Valid || !quotedIdentifier.Valid {
 				return nil, fmt.Errorf("cannot read definition/settings for %s %q: encrypted or metadata access denied",
@@ -77,13 +81,32 @@ func loadObjects(ctx context.Context, db *sql.DB) (map[objectName]schemaObject, 
 			object.ansiNulls = ansiNulls.Bool
 			object.quotedIdentifier = quotedIdentifier.Bool
 		default:
-			return nil, fmt.Errorf("cannot compare %q (type %s): CLR/extended modules have no T-SQL definition",
+			return nil, fmt.Errorf("cannot compare %q (type %s): unsupported CLR/extended module",
 				name.String(), object.typeCode)
 		}
 		objects[name] = object
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read database object rows: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close database object rows: %w", err)
+	}
+	if hasCLRFunctions {
+		functions, err := loadCLRFunctions(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		for name, object := range objects {
+			if !isCLRFunctionType(object.typeCode) {
+				continue
+			}
+			object.clr = functions[name]
+			if object.clr == nil {
+				return nil, fmt.Errorf("cannot read CLR function metadata for %q", name.String())
+			}
+			objects[name] = object
+		}
 	}
 	return objects, nil
 }
@@ -114,6 +137,35 @@ func compareObjects(source, destination map[objectName]schemaObject, mode sqlCom
 		if src.typeCode == "SN" {
 			if src.target != dst.target {
 				diffs = append(diffs, difference{"SYNONYM_TARGET", name.String(), src.target, dst.target})
+			}
+			continue
+		}
+		if isCLRFunctionType(src.typeCode) {
+			if src.clr == nil || dst.clr == nil {
+				a, b := "available", "available"
+				if src.clr == nil {
+					a = "<unavailable>"
+				}
+				if dst.clr == nil {
+					b = "<unavailable>"
+				}
+				diffs = append(diffs, difference{"CLR_FUNCTION_METADATA", name.String(), a, b})
+				continue
+			}
+			for _, field := range [...]struct{ kind, source, destination string }{
+				{"CLR_FUNCTION_ASSEMBLY_NAME", src.clr.assemblyName, dst.clr.assemblyName},
+				{"CLR_FUNCTION_ASSEMBLY_IDENTITY", src.clr.assemblyIdentity, dst.clr.assemblyIdentity},
+				{"CLR_FUNCTION_ASSEMBLY_SHA256", src.clr.assemblySHA256, dst.clr.assemblySHA256},
+				{"CLR_FUNCTION_PERMISSION_SET", src.clr.permissionSet, dst.clr.permissionSet},
+				{"CLR_FUNCTION_CLASS", src.clr.className, dst.clr.className},
+				{"CLR_FUNCTION_METHOD", src.clr.methodName, dst.clr.methodName},
+				{"CLR_FUNCTION_SIGNATURE", src.clr.signature, dst.clr.signature},
+				{"CLR_FUNCTION_EXECUTE_AS", src.clr.executeAs, dst.clr.executeAs},
+				{"CLR_FUNCTION_NULL_ON_NULL_INPUT", onOff(src.clr.nullOnNullInput), onOff(dst.clr.nullOnNullInput)},
+			} {
+				if field.source != field.destination {
+					diffs = append(diffs, difference{field.kind, name.String(), field.source, field.destination})
+				}
 			}
 			continue
 		}

@@ -235,3 +235,39 @@ func TestMigrationRequiresMetadataSchemaAndSafeObjects(t *testing.T) {
 		})
 	}
 }
+
+func TestMigrationUsesEqualCLRPrerequisiteWithoutMigratingIt(t *testing.T) {
+	function, consumer := objectName{"dbo", "ClrValue"}, objectName{"dbo", "Consumer"}
+	clr := schemaObject{typeCode: "FS", clr: &clrFunction{assemblyName: "Sample", assemblySHA256: "same", className: "Functions", methodName: "Value", signature: "RETURNS int"}}
+	old := schemaObject{typeCode: "P", definition: "CREATE PROC dbo.Consumer AS SELECT dbo.ClrValue(1)"}
+	updated := old
+	updated.definition = "CREATE PROC dbo.Consumer AS SELECT dbo.ClrValue(2)"
+	source := migrationPlanSchema(map[objectName]schemaObject{function: clr, consumer: updated})
+	destination := migrationPlanSchema(map[objectName]schemaObject{function: clr, consumer: old})
+	source.migration.dependencies[consumer] = []migrationDependency{{name: function}}
+	steps, _, err := planMigration(source, destination, sqlModeStrict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 1 || steps[0].name != consumer || steps[0].action != "ALTER" {
+		t.Fatalf("only the SQL consumer should be migrated: %+v", steps)
+	}
+}
+
+func TestMigrationRejectsMissingOrChangedCLRFunctions(t *testing.T) {
+	name := objectName{"dbo", "ClrValue"}
+	clr := schemaObject{typeCode: "FS", clr: &clrFunction{assemblyName: "Sample", assemblySHA256: "source", className: "Functions", methodName: "Value", signature: "RETURNS int"}}
+	changed := *clr.clr
+	changed.assemblySHA256 = "destination"
+	for _, objects := range []map[objectName]schemaObject{
+		{},
+		{name: {typeCode: "FS", clr: &changed}},
+	} {
+		source := migrationPlanSchema(map[objectName]schemaObject{name: clr})
+		destination := migrationPlanSchema(objects)
+		steps, _, err := planMigration(source, destination, sqlModeNormalized)
+		if err == nil || len(steps) != 0 {
+			t.Fatalf("CLR creation or binary changes must require manual migration: steps=%+v err=%v", steps, err)
+		}
+	}
+}

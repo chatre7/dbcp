@@ -35,6 +35,9 @@ func planMigration(source, destination *schema, mode sqlCompareMode) ([]migratio
 		if !changed[name.String()] {
 			continue
 		}
+		if isCLRFunctionType(src.typeCode) {
+			return nil, nil, fmt.Errorf("cannot migrate CLR function %s: apply assembly and CLR function changes manually before generating SQL migration", name)
+		}
 		if !migrationSupportedType(src.typeCode) {
 			return nil, nil, fmt.Errorf("cannot migrate %s: unsupported source object type %s", name, src.typeCode)
 		}
@@ -133,7 +136,7 @@ func planMigration(source, destination *schema, mode sqlCompareMode) ([]migratio
 				return fmt.Errorf("table prerequisite %s differs between source and destination; manual table migration is required before migrating dependent objects", name)
 			}
 		} else {
-			if !migrationSupportedType(typeCode) {
+			if !migrationSupportedType(typeCode) && !isCLRFunctionType(typeCode) {
 				return fmt.Errorf("prerequisite %s has unsupported object type %s; migrate it manually", name, typeCode)
 			}
 			if src, ok := source.objects[name]; !ok || src.typeCode != typeCode {

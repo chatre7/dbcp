@@ -12,7 +12,8 @@ CLI ภาษา Go สำหรับเปรียบเทียบ schema �
 | Primary keys | คอลัมน์ ลำดับคอลัมน์ ทิศทาง ASC/DESC และ clustered/nonclustered |
 | SQL stored procedures | Definition, `ANSI_NULLS`, `QUOTED_IDENTIFIER` |
 | Views | Definition, `ANSI_NULLS`, `QUOTED_IDENTIFIER` |
-| Functions | Scalar, inline TVF และ multi-statement TVF พร้อม definition และ session settings ข้างต้น |
+| SQL functions | Scalar, inline TVF และ multi-statement TVF พร้อม definition และ session settings ข้างต้น |
+| CLR functions (`FS`/`FT`) | Assembly identity/permission set/DLL SHA-256, class/method, signature และ execution settings |
 | Synonyms | ชื่อ target ที่อ้างอิง |
 
 SQL definition ที่เปลี่ยนจะแสดงเป็น unified diff พร้อม context 3 บรรทัด รายงาน HTML เป็นไฟล์ standalone เปิดแบบ offline ได้
@@ -148,6 +149,20 @@ Path แบบ relative อ้างอิงจาก current working directory
 
 `normalized` ไม่ใช่ semantic SQL comparison: comments, literals, identifier case และ formatting ส่วนอื่นยังมีผลต่อความต่าง ส่วน diff แสดง definition เดิม จึงอาจเห็น declaration ที่ถูกละเว้นในการเปรียบเทียบอยู่ใน hunk เมื่อมีส่วนอื่นเปลี่ยนด้วย
 
+### CLR function comparison
+
+รองรับ CLR scalar functions (`FS`) และ CLR table-valued functions (`FT`) โดยอ่าน metadata ไม่เรียกใช้ function และไม่พยายามหา T-SQL definition ที่ CLR ไม่มี:
+
+- ชื่อและ identity ของ assembly รวมถึง permission set
+- SHA-256 ของ DLL หลัก (`sys.assembly_files.file_id = 1`) เพื่อจับ binary ที่เปลี่ยนแม้ชื่อและ version เดิม; อ่านและ hash ครั้งเดียวต่อ assembly ในแต่ละฐานข้อมูล
+- Class และ method ที่ function ผูกไว้
+- Signature: ชื่อ/ลำดับ/ชนิดข้อมูลของ parameters, default values, scalar return type หรือชื่อ/ลำดับ/ชนิดข้อมูล/nullability/collation ของ return columns สำหรับ TVF
+- `EXECUTE AS` โดยเปรียบเทียบชื่อ principal ไม่ใช่ database-local ID และ `NULL ON NULL INPUT`
+
+ผลต่างใช้หมวด `CLR_FUNCTION_*` ในรายงาน Text/HTML เช่น `CLR_FUNCTION_ASSEMBLY_SHA256` และ `CLR_FUNCTION_SIGNATURE` การตั้ง `strict` หรือ `normalized` ไม่เปลี่ยนวิธีเปรียบเทียบ CLR
+
+ถ้าอ่าน binding, signature หรือ DLL bytes ไม่ได้ โปรแกรมจะหยุดแทนการข้าม object ทั้งนี้ยังไม่เปรียบเทียบ dependency assemblies, ไฟล์ ancillary เช่น source/debug symbols หรือ instance-level CLR settings และยังไม่รองรับ CLR procedures (`PC`), CLR aggregates (`AF`) และ extended procedures (`X`)
+
 ## สร้าง migration script
 
 เปิดใช้งานใน `.env`:
@@ -168,6 +183,7 @@ MSSQL_MIGRATION_OUT='migration.sql'
 ### ขอบเขต migration
 
 - รองรับ SQL procedures, views, functions และ synonyms เท่านั้น
+- CLR functions รองรับเฉพาะการเปรียบเทียบ ไม่สร้าง assembly/CLR DDL; หาก CLR function ที่ source ต้องการยังขาดหรือแตกต่าง ต้อง migrate ด้วยตนเองก่อน ส่วน CLR prerequisite ที่มีอยู่และตรงกันแล้วใช้ประกอบการเรียง SQL migration ได้
 - สร้าง object ที่ขาดด้วย `CREATE` และแก้ module ที่มีอยู่ด้วย `ALTER`
 - Synonym ที่เปลี่ยน target ใช้ `DROP` ตามด้วย `CREATE` ภายใน transaction
 - ไม่ลบ object ที่มีเฉพาะ destination
@@ -241,8 +257,8 @@ $LASTEXITCODE
 ## ข้อจำกัดและความปลอดภัย
 
 - เปรียบเทียบชื่อแบบ case-sensitive แม้ database collation จะเป็น case-insensitive
-- ไม่เปรียบเทียบ row data, column ordinal positions, ชื่อ PK constraints, defaults, identity, computed expressions, collation, non-PK indexes, FK/CHECK/UNIQUE constraints, triggers, permissions และ type/XML schema definitions
-- Encrypted/unreadable definitions และ CLR/extended modules ทำให้โปรแกรมแจ้ง error ไม่ใช่ข้ามแล้วรายงานว่าเท่ากัน
+- ไม่เปรียบเทียบ row data, ลำดับคอลัมน์ในตาราง, ชื่อ PK constraints, table defaults/identity/computed expressions/collation, non-PK indexes, FK/CHECK/UNIQUE constraints, triggers, object GRANT/DENY permissions และ type/XML schema definitions
+- Encrypted/unreadable SQL definitions หรือ CLR metadata และ object ประเภท `PC`/`AF`/`X` ทำให้โปรแกรมแจ้ง error ไม่ใช่ข้ามแล้วรายงานว่าเท่ากัน
 - Source และ destination ถูกอ่านตามลำดับ ไม่ได้อยู่ใน snapshot ร่วมกัน ควรหลีกเลี่ยง concurrent DDL ระหว่างเปรียบเทียบ และตรวจความเปลี่ยนแปลงอีกครั้งก่อนนำ migration ไปใช้
 - โปรแกรมไม่ใส่ connection credentials ลงในรายงาน แต่ SQL definitions อาจมีความลับฝังอยู่ ต้องปกป้องทั้งรายงานและ migration script
 - ไฟล์ผลลัพธ์ชื่อมาตรฐาน `diff.txt`, `diff.html`, `migration.sql` ที่ root ถูก ignore แล้ว หากใช้ชื่อหรือ path อื่น ต้องจัดการ `.gitignore` และสิทธิ์ไฟล์ให้เหมาะสมเอง
