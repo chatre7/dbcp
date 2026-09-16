@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,17 +14,18 @@ import (
 	"time"
 )
 
-const snapshotVersion = 1
+const snapshotVersion = 2
 
-// Explicit DTOs keep credentials and migration-only metadata outside the format.
-// Pointer booleans distinguish an intentional false from missing JSON metadata.
+// Explicit DTOs keep credentials outside the format.
+// Pointers distinguish intentional empty/false values from missing JSON metadata.
 type schemaSnapshot struct {
-	Version    int               `json:"version"`
-	CapturedAt time.Time         `json:"captured_at"`
-	Identity   databaseIdentity  `json:"identity"`
-	Timestamps []objectTimestamp `json:"timestamps"`
-	Tables     []snapshotTable   `json:"tables"`
-	Objects    []snapshotObject  `json:"objects"`
+	Version    int                `json:"version"`
+	CapturedAt time.Time          `json:"captured_at"`
+	Identity   databaseIdentity   `json:"identity"`
+	Timestamps []objectTimestamp  `json:"timestamps"`
+	Tables     []snapshotTable    `json:"tables"`
+	Objects    []snapshotObject   `json:"objects"`
+	Migration  *snapshotMigration `json:"migration,omitempty"`
 }
 
 type snapshotTable struct {
@@ -117,6 +117,13 @@ func makeSnapshot(s *schema, at time.Time) (*schemaSnapshot, error) {
 	slices.SortFunc(result.Timestamps, func(a, b objectTimestamp) int {
 		return compareSnapshotNames(a.Schema, a.Name, b.Schema, b.Name)
 	})
+	if s.migration != nil {
+		var err error
+		result.Migration, err = makeSnapshotMigration(s.migration, result.Identity)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if _, err := result.restore(); err != nil {
 		return nil, err
 	}
@@ -135,8 +142,11 @@ func validSnapshotIdentity(identity databaseIdentity) bool {
 }
 
 func (s *schemaSnapshot) restore() (*schema, error) {
-	if s == nil || s.Version != snapshotVersion {
+	if s == nil || (s.Version != 1 && s.Version != snapshotVersion) {
 		return nil, errors.New("unsupported snapshot version; use a compatible executable or a different data directory")
+	}
+	if s.Version == 1 && s.Migration != nil {
+		return nil, errors.New("version 1 snapshots cannot contain migration metadata")
 	}
 	if !validSnapshotIdentity(s.Identity) || s.CapturedAt.IsZero() {
 		return nil, errors.New("snapshot has missing database identity or capture timestamp")
@@ -236,6 +246,13 @@ func (s *schemaSnapshot) restore() (*schema, error) {
 	if len(timestampNames) != len(names) {
 		return nil, errors.New("snapshot timestamps do not cover the captured schema")
 	}
+	if s.Migration != nil {
+		var err error
+		result.migration, err = s.Migration.restore(result)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return result, nil
 }
 
@@ -244,6 +261,29 @@ func snapshotDatabaseID(identity databaseIdentity) string {
 	encoded, _ := json.Marshal([2]string{identity.Server, identity.Database})
 	hash := sha256.Sum256(encoded)
 	return hex.EncodeToString(hash[:])
+}
+
+func readSnapshot(path string) (*schemaSnapshot, *schema, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read snapshot %s: %w", path, err)
+	}
+	defer file.Close()
+	var snapshot schemaSnapshot
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&snapshot); err != nil {
+		return nil, nil, fmt.Errorf("snapshot %s contains invalid JSON or incompatible fields", path)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, nil, fmt.Errorf("snapshot %s contains trailing or invalid JSON", path)
+	}
+	restored, err := snapshot.restore()
+	if err != nil {
+		return nil, nil, fmt.Errorf("snapshot %s is not usable: %w", path, err)
+	}
+	return &snapshot, restored, nil
 }
 
 func findPreviousSnapshot(dataDir string, identity databaseIdentity) (*schemaSnapshot, string, error) {
@@ -265,31 +305,19 @@ func findPreviousSnapshot(dataDir string, identity databaseIdentity) (*schemaSna
 			continue
 		}
 		path := filepath.Join(dataDir, entry.Name(), key, "snapshot.json")
-		data, err := os.ReadFile(path)
+		candidate, _, err := readSnapshot(path)
 		if errors.Is(err, os.ErrNotExist) {
 			continue // No commit marker: an unfinished capture is not a baseline.
 		}
 		if err != nil {
-			return nil, "", fmt.Errorf("read snapshot %s: %w", path, err)
-		}
-		var candidate schemaSnapshot
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&candidate); err != nil {
-			return nil, "", fmt.Errorf("snapshot %s contains invalid JSON or incompatible fields", path)
-		}
-		var extra any
-		if err := decoder.Decode(&extra); err != io.EOF {
-			return nil, "", fmt.Errorf("snapshot %s contains trailing or invalid JSON", path)
+			return nil, "", err
 		}
 		if candidate.Identity != identity {
 			return nil, "", fmt.Errorf("snapshot %s does not match its database identity directory", path)
 		}
-		if _, err := candidate.restore(); err != nil {
-			return nil, "", fmt.Errorf("snapshot %s is not a usable baseline: %w", path, err)
-		}
+		// The shared reader validates the entire captured schema before selection.
 		if latest == nil || candidate.CapturedAt.After(latest.CapturedAt) {
-			latest, latestPath = &candidate, path
+			latest, latestPath = candidate, path
 		}
 	}
 	return latest, latestPath, nil

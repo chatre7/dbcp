@@ -35,12 +35,13 @@ type htmlReportData struct {
 	DestinationObjects int
 	Differences        []htmlDifference
 	History            *snapshotReportContext
+	Offline            *offlineReportContext
 }
 
-func renderHTMLReport(source, destination *schema, diffs []difference, mode sqlCompareMode, history *snapshotReportContext) (string, error) {
+func renderHTMLReport(source, destination *schema, diffs []difference, mode sqlCompareMode, context reportContext) (string, error) {
 	data := htmlReportData{
 		Mode: mode, Normalized: mode == sqlModeNormalized,
-		History:      history,
+		History: context.History, Offline: context.Offline,
 		SourceTables: len(source.tables), DestinationTables: len(destination.tables),
 		SourceObjects: len(source.objects), DestinationObjects: len(destination.objects),
 		Differences: make([]htmlDifference, 0, len(diffs)),

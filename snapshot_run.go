@@ -12,19 +12,20 @@ import (
 )
 
 type snapshotReportContext struct {
-	Server     string
-	Database   string
-	PreviousAt string
-	CurrentAt  string
-	Baseline   bool
-	Objects    []objectTimestamp
+	Server            string
+	Database          string
+	PreviousAt        string
+	CurrentAt         string
+	Baseline          bool
+	Objects           []objectTimestamp
+	MigrationIncluded bool
 }
 
 func (o objectTimestamp) Object() string {
 	return (objectName{schema: o.Schema, name: o.Name}).String()
 }
 
-func runSnapshot(ctx context.Context, dsn, dataDir, output, format string, mode sqlCompareMode, stdout, stderr io.Writer) (int, error) {
+func runSnapshot(ctx context.Context, dsn, dataDir, output, format string, includeMigration bool, mode sqlCompareMode, stdout, stderr io.Writer) (int, error) {
 	// An optional convenience copy must not overwrite the protected history.
 	if output != "" {
 		root, err := filepath.Abs(dataDir)
@@ -47,7 +48,7 @@ func runSnapshot(ctx context.Context, dsn, dataDir, output, format string, mode 
 			return 2, fmt.Errorf("-out must be outside -data-dir; a report is already saved inside each snapshot folder")
 		}
 	}
-	current, err := loadSchema(ctx, dsn, false, true)
+	current, err := loadSchema(ctx, dsn, includeMigration, true)
 	if err != nil {
 		return 2, fmt.Errorf("capture source schema: %w", err)
 	}
@@ -62,7 +63,8 @@ func runSnapshot(ctx context.Context, dsn, dataDir, output, format string, mode 
 	history := &snapshotReportContext{
 		Server: captured.Identity.Server, Database: captured.Identity.Database,
 		CurrentAt: captured.CapturedAt.UTC().Format(time.RFC3339Nano), Baseline: previous == nil,
-		Objects: slices.Clone(current.snapshot.Objects),
+		Objects:           slices.Clone(current.snapshot.Objects),
+		MigrationIncluded: current.migration != nil,
 	}
 	slices.SortFunc(history.Objects, func(a, b objectTimestamp) int {
 		if order := strings.Compare(b.ModifiedAt, a.ModifiedAt); order != 0 {
@@ -89,12 +91,12 @@ func runSnapshot(ctx context.Context, dsn, dataDir, output, format string, mode 
 	}
 	var report string
 	if format == "html" {
-		report, err = renderHTMLReport(before, current, diffs, mode, history)
+		report, err = renderHTMLReport(before, current, diffs, mode, reportContext{History: history})
 		if err != nil {
 			return 2, fmt.Errorf("render snapshot report: %w", err)
 		}
 	} else {
-		report = renderReport(before, current, diffs, mode, history)
+		report = renderReport(before, current, diffs, mode, reportContext{History: history})
 	}
 	if output != "" {
 		if err := os.WriteFile(output, []byte(report), 0600); err != nil {

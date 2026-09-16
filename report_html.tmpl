@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<title>MSSQL schema {{if .History}}history{{else}}comparison{{end}} — {{if and .History .History.Baseline}}baseline captured{{else}}{{len .Differences}} difference(s){{end}}</title>
+<title>MSSQL {{if .Offline}}offline {{end}}schema {{if .History}}history{{else}}comparison{{end}} — {{if and .History .History.Baseline}}baseline captured{{else}}{{len .Differences}} difference(s){{end}}</title>
 <style>
 :root {
   color-scheme: light;
@@ -121,14 +121,26 @@ footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--rule);
 <header>
   <div class="heading">
     <div>
-      <h1>{{if .History}}Schema history{{else}}Schema comparison{{end}}</h1>
-      <p class="subtitle">Microsoft SQL Server · {{if .History}}Previous snapshot / current schema{{else}}Source / destination{{end}}</p>
+      <h1>{{if .Offline}}Offline schema comparison{{else if .History}}Schema history{{else}}Schema comparison{{end}}</h1>
+      <p class="subtitle">Microsoft SQL Server · {{if .Offline}}Source / destination snapshot files{{else if .History}}Previous snapshot / current schema{{else}}Source / destination{{end}}</p>
     </div>
     <nav aria-label="Report sections"><a href="#differences">Differences</a>{{if .History}}<a href="#object-times">Object times</a>{{end}}<a href="#scope">Scope</a></nav>
   </div>
   {{if and .History .History.Baseline}}<p class="status"><strong>Baseline captured.</strong> No earlier snapshot exists; changes were not evaluated.</p>
   {{else if .Differences}}<p class="status"><strong>{{len .Differences}} difference(s) found.</strong> Review the source and destination values below.</p>
   {{else}}<p class="status equal"><strong>No differences found within the comparison scope.</strong></p>{{end}}
+  {{with .Offline}}
+  <div class="history">
+    <p><strong>Source snapshot:</strong> <code>{{.Source.Database}}</code> on <code>{{.Source.Server}}</code></p>
+    <p><strong>Source captured (UTC):</strong> {{.Source.CapturedAt}}</p>
+    <p><strong>Destination snapshot:</strong> <code>{{.Destination.Database}}</code> on <code>{{.Destination.Server}}</code></p>
+    <p><strong>Destination captured (UTC):</strong> {{.Destination.CapturedAt}}</p>
+    <p>Compared local snapshot files only. No database connections; snapshot history is unchanged.</p>
+    {{if .MigrationGenerated}}<p><strong>Migration SQL generated separately; not executed.</strong> Re-export/review destination drift before manual execution. Server/database guards do not detect schema drift.</p>
+    {{else}}<p>Compare only: no migration SQL generated.</p>{{end}}
+    <p>Results describe these two captures, not the current live databases. Capture times may differ; object timestamps are informational and are not compared.</p>
+  </div>
+  {{end}}
   {{with .History}}
   <div class="history">
     <p><strong>Database:</strong> <code>{{.Database}}</code> · <strong>Server:</strong> <code>{{.Server}}</code></p>
@@ -136,6 +148,7 @@ footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--rule);
     <p><strong>Current snapshot (UTC):</strong> {{.CurrentAt}}</p>
     <p>Source = previous snapshot; destination = current schema. Added and removed objects are relative to the previous snapshot.</p>
     <p>Snapshots show net schema differences between captures, not a complete DDL audit or who made each change.</p>
+    {{if .MigrationIncluded}}<p>Migration dependency/safety metadata included for offline generation. This capture does not generate or execute SQL.</p>{{end}}
   </div>
   {{end}}
   <div class="overview">
@@ -191,7 +204,8 @@ footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--rule);
   <p><strong>Not compared:</strong> row data, table column order/defaults/identity/computed expressions/collation, non-PK indexes, FK/CHECK/UNIQUE constraints, constraint names, triggers, object GRANT/DENY permissions, type/XML schema definitions and other advanced properties. CLR dependency assemblies, ancillary assembly files and instance-level CLR settings are excluded.</p>
   <p>Names are case-sensitive. SQL hunks show the original definitions. In normalized mode, ignored declaration changes can appear alongside other differences. Synonym targets are compared by name, not by connecting to the referenced object.</p>
   <p>CLR metadata is compared independently of SQL mode; it is not a T-SQL definition diff. Missing or changed CLR functions require manual assembly/function migration.</p>
-  <p>Encrypted or unreadable SQL definitions/CLR metadata and unsupported CLR procedures (PC), aggregates (AF) or extended procedures (X) cause an error rather than being silently skipped. Database-level VIEW DEFINITION and readable CLR assembly bytes are required; object-level DENY can hide metadata. {{if .History}}Avoid concurrent schema changes: metadata is read in multiple queries, not a transactionally consistent snapshot.{{else}}Avoid concurrent schema changes because the databases are read sequentially.{{end}}</p>
+  {{if .Offline}}<p>Both inputs were validated as supported schema snapshots. Database permissions, readable definitions and CLR metadata were required when each snapshot was captured, not during this offline comparison. Snapshots contain only their documented comparison scope, not a complete database backup or DDL audit.</p>
+  {{else}}<p>Encrypted or unreadable SQL definitions/CLR metadata and unsupported CLR procedures (PC), aggregates (AF) or extended procedures (X) cause an error rather than being silently skipped. Database-level VIEW DEFINITION and readable CLR assembly bytes are required; object-level DENY can hide metadata. {{if .History}}Avoid concurrent schema changes: metadata is read in multiple queries, not a transactionally consistent snapshot.{{else}}Avoid concurrent schema changes because the databases are read sequentially.{{end}}</p>{{end}}
 </section>
 <footer>Generated by mssql-batch-compare. This file works offline with no scripts or external assets. SQL definitions may contain sensitive values; share the report accordingly.</footer>
 </main>

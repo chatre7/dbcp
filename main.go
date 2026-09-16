@@ -28,10 +28,21 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	format := flags.String("format", "text", "report format: text or html (self-contained, offline)")
 	snapshotMode := flags.Bool("snapshot", false, "compare MSSQL_SOURCE_DSN with its latest saved schema snapshot (no row data or migration)")
 	dataDir := flags.String("data-dir", "data", "snapshot history root; writes ddmmyyhhmmss/database-id folders")
+	sourceSnapshot := flags.String("source-snapshot", "", "offline source snapshot.json; requires -destination-snapshot")
+	destinationSnapshot := flags.String("destination-snapshot", "", "offline destination snapshot.json; requires -source-snapshot")
+	includeMigration := flags.Bool("include-migration", false, "with -snapshot, capture dependencies and safety metadata for later offline migration")
+	offlineMigration := flags.String("migration-out", "", "with offline snapshot inputs, generate migration SQL to this file; never execute")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: mssql-batch-compare [-out diff.txt] [-format text|html] [-timeout 60s] [-sql-mode strict|normalized]")
-		fmt.Fprintln(stderr, "       mssql-batch-compare -snapshot [-data-dir data] [-format text|html]")
+		fmt.Fprintln(stderr, "       mssql-batch-compare -snapshot [-include-migration] [-data-dir data] [-format text|html]")
+		fmt.Fprintln(stderr, "       mssql-batch-compare -source-snapshot source.json -destination-snapshot destination.json [-migration-out migration.sql] [-format html] [-out diff.html]")
+		fmt.Fprintln(stderr, "Offline comparison reads only the two snapshot files, not .env or database/migration settings.")
+		fmt.Fprintln(stderr, "It opens no database connections and does not advance history. SQL generation requires explicit -migration-out.")
+		fmt.Fprintln(stderr, "Both snapshots must include migration metadata; legacy/compare-only snapshots require re-export with -include-migration.")
+		fmt.Fprintln(stderr, "Offline scripts use the captured destination identity; re-export/review for drift before manual execution.")
+		fmt.Fprintln(stderr, "Use both snapshot-file flags together; they cannot be combined with -snapshot.")
 		fmt.Fprintln(stderr, "Snapshot mode needs only MSSQL_SOURCE_DSN; destination is ignored and migration must be disabled.")
+		fmt.Fprintln(stderr, "-include-migration adds catalog dependencies and safety checks to the export; it does not generate SQL.")
 		fmt.Fprintln(stderr, "First capture saves a baseline (exit 0); later captures compare previous -> current schema.")
 		fmt.Fprintln(stderr, "History stores schema/SQL definitions, not row data or connection strings. Protect the data directory.")
 		fmt.Fprintln(stderr, "Folders use local time ddmmyyhhmmss; snapshot timestamps use UTC. Same-database/second collisions fail without overwriting.")
@@ -99,6 +110,40 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if *format != "text" && *format != "html" {
 		return fail(fmt.Errorf("-format must be text or html"))
 	}
+	offlineRequested := false
+	offlineMigrationRequested := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "source-snapshot" || f.Name == "destination-snapshot" {
+			offlineRequested = true
+		}
+		if f.Name == "migration-out" {
+			offlineMigrationRequested = true
+		}
+	})
+	if *includeMigration && !*snapshotMode {
+		return fail(fmt.Errorf("-include-migration requires -snapshot"))
+	}
+	if offlineMigrationRequested {
+		if !offlineRequested {
+			return fail(fmt.Errorf("-migration-out requires paired offline snapshot-file inputs"))
+		}
+		if strings.TrimSpace(*offlineMigration) == "" {
+			return fail(fmt.Errorf("-migration-out must specify a nonempty SQL output path"))
+		}
+	}
+	if offlineRequested {
+		if *snapshotMode {
+			return fail(fmt.Errorf("-snapshot cannot be combined with offline snapshot-file flags"))
+		}
+		if strings.TrimSpace(*sourceSnapshot) == "" || strings.TrimSpace(*destinationSnapshot) == "" {
+			return fail(fmt.Errorf("offline comparison requires both -source-snapshot and -destination-snapshot"))
+		}
+		code, err := runOfflineComparison(*sourceSnapshot, *destinationSnapshot, *output, *format, *offlineMigration, mode, stdout, stderr)
+		if err != nil {
+			return fail(err)
+		}
+		return code
+	}
 	config, err := loadConfig()
 	if err != nil {
 		return fail(err)
@@ -115,7 +160,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		ctx, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
-		code, err := runSnapshot(ctx, config.sourceDSN, *dataDir, *output, *format, mode, stdout, stderr)
+		code, err := runSnapshot(ctx, config.sourceDSN, *dataDir, *output, *format, *includeMigration, mode, stdout, stderr)
 		if err != nil {
 			return fail(err)
 		}
@@ -156,12 +201,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	var report string
 	if *format == "html" {
-		report, err = renderHTMLReport(source, destination, diffs, mode, nil)
+		report, err = renderHTMLReport(source, destination, diffs, mode, reportContext{})
 		if err != nil {
 			return fail(fmt.Errorf("render HTML report: %w", err))
 		}
 	} else {
-		report = renderReport(source, destination, diffs, mode, nil)
+		report = renderReport(source, destination, diffs, mode, reportContext{})
 	}
 	if *output != "" {
 		if err := os.WriteFile(*output, []byte(report), 0600); err != nil {

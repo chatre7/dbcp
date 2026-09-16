@@ -17,19 +17,27 @@ func TestHTMLReportTreatsDatabaseContentAsText(t *testing.T) {
 		Server: payload, Database: object, Baseline: true,
 		Objects: []objectTimestamp{{Schema: "dbo", Name: object, Type: "P", CreatedAt: payload, ModifiedAt: payload}},
 	}
-	report, err := renderHTMLReport(&schema{}, &schema{}, diffs, sqlModeStrict, history)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, executable := range []string{"<script>", "<svg ", "<img "} {
-		if strings.Contains(report, executable) {
-			t.Fatalf("database content became markup: %s", executable)
+	for _, context := range []reportContext{
+		{History: history},
+		{Offline: &offlineReportContext{
+			Source:      offlineSnapshotReference{Server: payload, Database: object, CapturedAt: payload},
+			Destination: offlineSnapshotReference{Server: object, Database: payload, CapturedAt: payload},
+		}},
+	} {
+		report, err := renderHTMLReport(&schema{}, &schema{}, diffs, sqlModeStrict, context)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	decoded := html.UnescapeString(report)
-	for _, text := range []string{object, payload, "ข้อมูล", "<missing>"} {
-		if !strings.Contains(decoded, text) {
-			t.Fatalf("escaping must not discard report content: %q", text)
+		for _, executable := range []string{"<script>", "<svg ", "<img "} {
+			if strings.Contains(report, executable) {
+				t.Fatalf("database content became markup: %s", executable)
+			}
+		}
+		decoded := html.UnescapeString(report)
+		for _, text := range []string{object, payload, "ข้อมูล", "<missing>"} {
+			if !strings.Contains(decoded, text) {
+				t.Fatalf("escaping must not discard report content: %q", text)
+			}
 		}
 	}
 }

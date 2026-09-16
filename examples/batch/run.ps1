@@ -1,10 +1,11 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string]$Executable = (Join-Path $PSScriptRoot '../../mssql-batch-compare.exe'),
-    [string]$PairsDirectory = (Join-Path $PSScriptRoot '../../runs'),
+    [string]$Executable,
+    [string]$PairsDirectory,
     [switch]$Snapshot,
-    [string]$DataDirectory = (Join-Path $PSScriptRoot '../../data')
+    [string]$DataDirectory,
+    [switch]$IncludeMigration
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,9 +13,21 @@ $batchExitCode = 0
 $results = @()
 
 try {
+    if ($IncludeMigration -and -not $Snapshot) {
+        throw '-IncludeMigration requires -Snapshot.'
+    }
+    if (-not $PSBoundParameters.ContainsKey('Executable')) {
+        $Executable = Join-Path $PSScriptRoot '../../mssql-batch-compare.exe'
+    }
+    if (-not $PSBoundParameters.ContainsKey('PairsDirectory')) {
+        $PairsDirectory = Join-Path $PSScriptRoot '../../runs'
+    }
     $Executable = (Resolve-Path -LiteralPath $Executable).ProviderPath
     $PairsDirectory = (Resolve-Path -LiteralPath $PairsDirectory).ProviderPath
     if ($Snapshot) {
+        if (-not $PSBoundParameters.ContainsKey('DataDirectory')) {
+            $DataDirectory = Join-Path $PSScriptRoot '../../data'
+        }
         $DataDirectory = [System.IO.Path]::GetFullPath($DataDirectory)
         if ($DataDirectory.Contains('"')) {
             throw 'DataDirectory must not contain a double quote.'
@@ -42,6 +55,9 @@ try {
             $start.Arguments = '-sql-mode normalized -format html -out diff.html -timeout 3m'
             if ($Snapshot) {
                 $start.Arguments += " -snapshot -data-dir $quotedDataDirectory"
+                if ($IncludeMigration) {
+                    $start.Arguments += ' -include-migration'
+                }
             }
             $start.UseShellExecute = $false
             $start.RedirectStandardOutput = $true

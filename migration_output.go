@@ -34,6 +34,14 @@ func sameOutputPath(a, b string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("resolve output path: %w", err)
 	}
+	// Resolve existing parent aliases even when neither output file exists yet.
+	// Otherwise two paths through a directory symlink could overwrite each other.
+	if parent, err := filepath.EvalSymlinks(filepath.Dir(x)); err == nil {
+		x = filepath.Join(parent, filepath.Base(x))
+	}
+	if parent, err := filepath.EvalSymlinks(filepath.Dir(y)); err == nil {
+		y = filepath.Join(parent, filepath.Base(y))
+	}
 	if x == y || runtime.GOOS == "windows" && strings.EqualFold(x, y) {
 		return true, nil
 	}

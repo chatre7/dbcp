@@ -10,7 +10,7 @@ func sqlReportForTest(a, b string, mode sqlCompareMode) string {
 	name := objectName{"dbo", "Example"}
 	source := &schema{objects: map[objectName]schemaObject{name: {typeCode: "P", definition: a}}}
 	destination := &schema{objects: map[objectName]schemaObject{name: {typeCode: "P", definition: b}}}
-	return renderReport(source, destination, compareSchemas(source, destination, mode), mode, nil)
+	return renderReport(source, destination, compareSchemas(source, destination, mode), mode, reportContext{})
 }
 
 func TestDefinitionReportUsesSeparatedContextHunks(t *testing.T) {

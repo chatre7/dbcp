@@ -82,9 +82,28 @@ func nullability(nullable bool) string {
 	return "NOT NULL"
 }
 
-func renderReport(source, destination *schema, diffs []difference, mode sqlCompareMode, history *snapshotReportContext) string {
+type reportContext struct {
+	History *snapshotReportContext
+	Offline *offlineReportContext
+}
+
+func renderReport(source, destination *schema, diffs []difference, mode sqlCompareMode, context reportContext) string {
 	var out strings.Builder
+	history := context.History
 	fmt.Fprintln(&out, "MSSQL SCHEMA DIFF")
+	if offline := context.Offline; offline != nil {
+		fmt.Fprintln(&out, "Offline comparison: snapshot files only; no database connections.")
+		if offline.MigrationGenerated {
+			fmt.Fprintln(&out, "Migration SQL generated separately; NOT executed. Re-export/review destination drift before manual execution.")
+		} else {
+			fmt.Fprintln(&out, "Compare only: no migration SQL generated.")
+		}
+		fmt.Fprintf(&out, "Source snapshot: database=%q server=%q captured_at_utc=%s\n",
+			offline.Source.Database, offline.Source.Server, offline.Source.CapturedAt)
+		fmt.Fprintf(&out, "Destination snapshot: database=%q server=%q captured_at_utc=%s\n",
+			offline.Destination.Database, offline.Destination.Server, offline.Destination.CapturedAt)
+		fmt.Fprintln(&out, "Results describe the two captures, not the current live databases. Capture times may differ.")
+	}
 	if history != nil {
 		fmt.Fprintf(&out, "Database: %q on server %q\n", history.Database, history.Server)
 		fmt.Fprintf(&out, "Current snapshot (UTC): %s\n", history.CurrentAt)
@@ -95,6 +114,9 @@ func renderReport(source, destination *schema, diffs []difference, mode sqlCompa
 		}
 		fmt.Fprintln(&out, "Source = previous snapshot; destination = current schema. ADDED/REMOVED are relative to the previous snapshot.")
 		fmt.Fprintln(&out, "Snapshots show net schema differences between captures, not a complete DDL audit or the author of changes.")
+		if history.MigrationIncluded {
+			fmt.Fprintln(&out, "Migration dependency/safety metadata included for offline generation; this capture does not generate or execute SQL.")
+		}
 	}
 	fmt.Fprintln(&out, "Scope: user tables, column names/types/nullability, primary-key columns/order/direction/clustering,")
 	fmt.Fprintln(&out, "       SQL stored procedures/views/functions (definition, ANSI_NULLS, QUOTED_IDENTIFIER), synonym targets.")
@@ -110,7 +132,11 @@ func renderReport(source, destination *schema, diffs []difference, mode sqlCompa
 	fmt.Fprintln(&out, "              non-PK indexes, FK/CHECK/UNIQUE constraints, constraint names, triggers, object GRANT/DENY permissions,")
 	fmt.Fprintln(&out, "              type/XML schema definitions and other advanced table/column properties.")
 	fmt.Fprintln(&out, "CLR comparison excludes dependency assemblies, ancillary assembly files and instance-level CLR settings.")
-	fmt.Fprintln(&out, "Names are case-sensitive. Avoid schema changes during comparison.")
+	if context.Offline != nil {
+		fmt.Fprintln(&out, "Names are case-sensitive. Object timestamps are informational and are not compared.")
+	} else {
+		fmt.Fprintln(&out, "Names are case-sensitive. Avoid schema changes during comparison.")
+	}
 	fmt.Fprintf(&out, "Tables: source=%d destination=%d\n", len(source.tables), len(destination.tables))
 	fmt.Fprintf(&out, "Procedures/views/functions/synonyms: source=%d destination=%d\n\n", len(source.objects), len(destination.objects))
 	for _, d := range diffs {
