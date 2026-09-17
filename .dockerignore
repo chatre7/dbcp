@@ -1,0 +1,9 @@
+# Allow only inputs needed to compile the CLI.
+**
+!go.mod
+!go.sum
+!*.go
+!report_html.tmpl
+!Dockerfile
+!.dockerignore
+*_test.go
