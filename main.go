@@ -20,7 +20,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("mssql-batch-compare", flag.ContinueOnError)
+	flags := flag.NewFlagSet("dbcp", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	output := flags.String("out", "", "also write the UTF-8 report to this file (overwrites on success)")
 	timeout := flags.Duration("timeout", 60*time.Second, "total connection and schema-read timeout, e.g. 30s or 2m")
@@ -33,9 +33,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	includeMigration := flags.Bool("include-migration", false, "with -snapshot, capture dependencies and safety metadata for later offline migration")
 	offlineMigration := flags.String("migration-out", "", "with offline snapshot inputs, generate migration SQL to this file; never execute")
 	flags.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: mssql-batch-compare [-out diff.txt] [-format text|html] [-timeout 60s] [-sql-mode strict|normalized]")
-		fmt.Fprintln(stderr, "       mssql-batch-compare -snapshot [-include-migration] [-data-dir data] [-format text|html]")
-		fmt.Fprintln(stderr, "       mssql-batch-compare -source-snapshot source.json -destination-snapshot destination.json [-migration-out migration.sql] [-format html] [-out diff.html]")
+		fmt.Fprintln(stderr, "Usage: dbcp [-out diff.txt] [-format text|html] [-timeout 60s] [-sql-mode strict|normalized]")
+		fmt.Fprintln(stderr, "       dbcp -snapshot [-include-migration] [-data-dir data] [-format text|html]")
+		fmt.Fprintln(stderr, "       dbcp -source-snapshot source.json -destination-snapshot destination.json [-migration-out migration.sql] [-format html] [-out diff.html]")
 		fmt.Fprintln(stderr, "Offline comparison reads only the two snapshot files, not .env or database/migration settings.")
 		fmt.Fprintln(stderr, "It opens no database connections and does not advance history. SQL generation requires explicit -migration-out.")
 		fmt.Fprintln(stderr, "Both snapshots must include migration metadata; legacy/compare-only snapshots require re-export with -include-migration.")

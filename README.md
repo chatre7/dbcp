@@ -1,4 +1,4 @@
-# MSSQL Batch Compare
+# dbcp
 
 CLI ภาษา Go สำหรับเปรียบเทียบ schema ของ SQL Server และเลือกสร้าง migration SQL เพื่อปรับ **destination ให้ตรงกับ source** ภายในขอบเขตที่รองรับ
 
@@ -36,11 +36,49 @@ CLI ภาษา Go สำหรับเปรียบเทียบ schema �
 - บัญชีที่มีสิทธิ์อ่าน metadata ตามหัวข้อ [สิทธิ์ฐานข้อมูล](#สิทธิ์ฐานข้อมูล) เฉพาะเครื่องที่อ่าน SQL Server
 - `sqlcmd` เป็นตัวเลือกสำหรับรัน migration ด้วยตนเอง ไม่จำเป็นสำหรับการเปรียบเทียบ
 
-ตัวอย่างแยกเป็น **PowerShell / Windows** (`.\mssql-batch-compare.exe`) และ **Bash / Linux** (`./mssql-batch-compare`) โดยรันจาก root ของโปรเจกต์ เว้นแต่ระบุไว้ต่างหาก
+ตัวอย่างแยกเป็น **PowerShell / Windows** (`.\dbcp.exe`) และ **Bash / Linux** (`./dbcp`) โดยรันจาก root ของโปรเจกต์ เว้นแต่ระบุไว้ต่างหาก เมื่อติดตั้ง CLI เข้า PATH แล้ว สามารถใช้ `dbcp` แทน `./dbcp` หรือ `.\dbcp.exe` ได้
 
 บน Linux ใช้ `.env` รูปแบบเดียวกัน ไม่ต้อง `source .env`; ให้โปรแกรมอ่านไฟล์เอง ตัวอย่าง connection แบบ SQL Authentication ด้านล่างใช้ได้ทั้งสองระบบ ส่วน Windows Authentication ไม่ได้ใช้ได้บน Linux โดยอัตโนมัติ
 
 CLI คืน `1` เมื่อพบความต่าง ซึ่งไม่ใช่ error หากใช้ Bash กับ `set -e` หรือ `&&` ต้องรับ exit code ให้ถูกต้องตาม [Exit codes](#exit-codes) ส่วน `xdg-open` ใช้เฉพาะ Linux desktop ที่ติดตั้งไว้; บนเครื่อง headless ให้คัดลอก HTML ไปเปิดบนเครื่องที่มี browser
+
+### ติดตั้งเป็นคำสั่ง `dbcp`
+
+Repository: [github.com/chatre7/dbcp](https://github.com/chatre7/dbcp) — Go module ใช้ path เดียวกัน ติดตั้งหรืออัปเดต CLI ได้โดยไม่ต้อง clone repository:
+
+```bash
+go install github.com/chatre7/dbcp@latest
+```
+
+คำสั่ง `go install` ใช้ได้ทั้ง Bash และ PowerShell โดยติดตั้ง `dbcp` บน Linux หรือ `dbcp.exe` บน Windows ไว้ที่ `GOBIN` หรือ `bin` ของ GOPATH ตัวแรกเมื่อไม่ได้กำหนด GOBIN เพิ่ม directory นี้เข้า PATH เพื่อเรียก `dbcp` จาก directory ใดก็ได้:
+
+**Bash / Linux — PATH สำหรับ shell ปัจจุบัน**
+
+```bash
+dbcp_bin="$(go env GOBIN)"
+if [[ -z "$dbcp_bin" ]]; then
+    dbcp_gopath="$(go env GOPATH)"
+    dbcp_bin="${dbcp_gopath%%:*}/bin"
+fi
+export PATH="$dbcp_bin:$PATH"
+dbcp -help
+```
+
+**PowerShell / Windows — PATH สำหรับ session ปัจจุบัน**
+
+```powershell
+$dbcpBin = go env GOBIN
+if ([string]::IsNullOrWhiteSpace($dbcpBin)) {
+    $dbcpGoPath = (go env GOPATH) -split ';'
+    $dbcpBin = Join-Path $dbcpGoPath[0] 'bin'
+}
+$env:Path = "$dbcpBin;$env:Path"
+dbcp -help
+```
+
+หากต้องการให้ PATH คงอยู่หลังเปิด terminal ใหม่ ให้เพิ่ม directory เดียวกันใน shell profile บน Linux หรือ User Environment Variables บน Windows โปรแกรมยังอ่าน `.env` และ resolve relative paths จาก **current working directory** ไม่ใช่ directory ที่ติดตั้ง binary จึงเลือก config ของแต่ละงานได้ด้วย directory ที่รัน
+
+ตัวแปร `MSSQL_*`, CLI flags, snapshot format และ history เดิมยังใช้ต่อได้ ชื่อ `dbcp` ไม่ได้เพิ่มการรองรับ database engine อื่น; ขอบเขตยังเป็น SQL Server ตาม [สิ่งที่รองรับ](#สิ่งที่รองรับ)
 
 ### Build
 
@@ -48,14 +86,14 @@ CLI คืน `1` เมื่อพบความต่าง ซึ่งไ�
 
 ```powershell
 go mod download
-go build -o mssql-batch-compare.exe .
+go build -o dbcp.exe .
 ```
 
 **Bash / Linux**
 
 ```bash
 go mod download
-go build -o mssql-batch-compare .
+go build -o dbcp .
 ```
 
 ## Docker
@@ -67,8 +105,8 @@ go build -o mssql-batch-compare .
 ใช้คำสั่งเดียวกันได้ทั้ง Bash และ PowerShell จาก root ของโปรเจกต์:
 
 ```bash
-docker build -t mssql-batch-compare:local .
-docker run --rm --network none mssql-batch-compare:local
+docker build -t dbcp:local .
+docker run --rm --network none dbcp:local
 ```
 
 หากไม่ส่ง arguments จะแสดง `-help` โดยไม่อ่าน `.env` หรือเชื่อมต่อฐานข้อมูล
@@ -98,7 +136,7 @@ docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
     --mount "type=bind,source=$PWD/.env,target=/work/.env,readonly" \
     --mount "type=bind,source=$PWD/data,target=/data" \
     -e MSSQL_GENERATE_MIGRATION=false \
-    mssql-batch-compare:local \
+    dbcp:local \
     -sql-mode normalized -format html -out /data/diff.html || docker_exit=$?
 printf 'Container exit code: %s\n' "$docker_exit"
 ```
@@ -111,7 +149,7 @@ docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges `
     --mount "type=bind,source=$($PWD.Path)/.env,target=/work/.env,readonly" `
     --mount "type=bind,source=$($PWD.Path)/data,target=/data" `
     -e MSSQL_GENERATE_MIGRATION=false `
-    mssql-batch-compare:local `
+    dbcp:local `
     -sql-mode normalized -format html -out /data/diff.html
 $LASTEXITCODE
 ```
@@ -143,7 +181,7 @@ docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-
     --user "$(id -u):$(id -g)" \
     --mount "type=bind,source=$PWD/data/offline,target=/snapshots,readonly" \
     --mount "type=bind,source=$PWD/data/docker,target=/data" \
-    mssql-batch-compare:local \
+    dbcp:local \
     -source-snapshot /snapshots/source.json \
     -destination-snapshot /snapshots/destination.json \
     -sql-mode normalized -format html -out /data/diff.html || docker_exit=$?
@@ -157,7 +195,7 @@ New-Item -ItemType Directory -Path .\data\docker -Force | Out-Null
 docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges `
     --mount "type=bind,source=$($PWD.Path)/data/offline,target=/snapshots,readonly" `
     --mount "type=bind,source=$($PWD.Path)/data/docker,target=/data" `
-    mssql-batch-compare:local `
+    dbcp:local `
     -source-snapshot /snapshots/source.json `
     -destination-snapshot /snapshots/destination.json `
     -sql-mode normalized -format html -out /data/diff.html
@@ -229,32 +267,32 @@ MSSQL_SOURCE_DSN='server=HOST\INSTANCE;database=SourceDB;encrypt=true;TrustServe
 แสดงผลข้อความใน terminal:
 
 ```powershell
-.\mssql-batch-compare.exe
+.\dbcp.exe
 ```
 
 บันทึกรายงานข้อความ:
 
 ```powershell
-.\mssql-batch-compare.exe -out diff.txt
+.\dbcp.exe -out diff.txt
 ```
 
 สร้างรายงาน HTML:
 
 ```powershell
-.\mssql-batch-compare.exe -sql-mode normalized -format html -out diff.html
+.\dbcp.exe -sql-mode normalized -format html -out diff.html
 ```
 
 **Bash / Linux** — เลือกรันตามรูปแบบรายงานที่ต้องการ หลังตั้ง `.env` ข้างต้น:
 
 ```bash
 # Text to terminal
-./mssql-batch-compare
+./dbcp
 
 # Text report
-./mssql-batch-compare -out diff.txt
+./dbcp -out diff.txt
 
 # HTML report
-./mssql-batch-compare -sql-mode normalized -format html -out diff.html
+./dbcp -sql-mode normalized -format html -out diff.html
 ```
 
 รายงานจะถูกส่งไปที่ stdout ด้วย แม้ระบุ `-out` แล้วก็ตาม การใช้ชื่อไฟล์ `.html` เพียงอย่างเดียวไม่เปลี่ยน format ต้องระบุ `-format html`
@@ -264,13 +302,13 @@ MSSQL_SOURCE_DSN='server=HOST\INSTANCE;database=SourceDB;encrypt=true;TrustServe
 ใช้ `-snapshot` เพื่ออ่านฐานข้อมูลจาก `MSSQL_SOURCE_DSN` แล้วเทียบกับ snapshot ล่าสุดของ **server/database เดียวกัน** ไม่ใช้ `MSSQL_DESTINATION_DSN` และต้องตั้ง `MSSQL_GENERATE_MIGRATION=false` โหมดนี้ไม่สร้างหรือรัน migration และไม่อ่าน row data
 
 ```powershell
-.\mssql-batch-compare.exe -snapshot -sql-mode normalized -format html -timeout 3m
+.\dbcp.exe -snapshot -sql-mode normalized -format html -timeout 3m
 ```
 
 **Bash / Linux** — ตั้ง `MSSQL_SOURCE_DSN` ใน `.env`; ค่าด้านหน้าคำสั่งปิด migration เฉพาะ process นี้:
 
 ```bash
-MSSQL_GENERATE_MIGRATION=false ./mssql-batch-compare \
+MSSQL_GENERATE_MIGRATION=false ./dbcp \
     -snapshot -sql-mode normalized -format html -timeout 3m
 ```
 
@@ -326,7 +364,7 @@ Metadata ถูกอ่านหลาย query ไม่ใช่ transactiona
 ```powershell
 $env:MSSQL_SOURCE_DSN = 'server=SOURCE_HOST;database=SourceDB;encrypt=true;TrustServerCertificate=false'
 $env:MSSQL_GENERATE_MIGRATION = 'false'
-.\mssql-batch-compare.exe -snapshot -sql-mode normalized -format html -timeout 3m
+.\dbcp.exe -snapshot -sql-mode normalized -format html -timeout 3m
 $LASTEXITCODE
 ```
 
@@ -334,7 +372,7 @@ $LASTEXITCODE
 
 ```bash
 capture_exit=0
-MSSQL_GENERATE_MIGRATION=false ./mssql-batch-compare \
+MSSQL_GENERATE_MIGRATION=false ./dbcp \
     -snapshot -sql-mode normalized -format html -timeout 3m || capture_exit=$?
 printf 'Capture exit code: %s\n' "$capture_exit"
 ```
@@ -348,7 +386,7 @@ printf 'Capture exit code: %s\n' "$capture_exit"
 ```powershell
 $env:MSSQL_SOURCE_DSN = 'server=DESTINATION_HOST;database=DestinationDB;encrypt=true;TrustServerCertificate=false'
 $env:MSSQL_GENERATE_MIGRATION = 'false'
-.\mssql-batch-compare.exe -snapshot -sql-mode normalized -format html -timeout 3m
+.\dbcp.exe -snapshot -sql-mode normalized -format html -timeout 3m
 $LASTEXITCODE
 ```
 
@@ -356,7 +394,7 @@ $LASTEXITCODE
 
 ```bash
 capture_exit=0
-MSSQL_GENERATE_MIGRATION=false ./mssql-batch-compare \
+MSSQL_GENERATE_MIGRATION=false ./dbcp \
     -snapshot -sql-mode normalized -format html -timeout 3m || capture_exit=$?
 printf 'Capture exit code: %s\n' "$capture_exit"
 ```
@@ -393,7 +431,7 @@ Copy-Item -LiteralPath 'E:\schema-transfer\destination\snapshot.json' -Destinati
 เครื่อง C ต้องมีเพียง executable และไฟล์ snapshot สองไฟล์สำหรับการรัน ไม่ต้องมี SQL Server, `sqlcmd`, DSN หรือ `.env` โหมดนี้เลือกทำงานก่อนโหลด config จึงไม่อ่าน `.env` หรือค่า environment สำหรับฐานข้อมูล/migration และไม่เชื่อมต่อ SQL Server:
 
 ```powershell
-.\mssql-batch-compare.exe `
+.\dbcp.exe `
     -source-snapshot .\data\offline\source.json `
     -destination-snapshot .\data\offline\destination.json `
     -sql-mode normalized -format html -out .\data\offline\diff.html
@@ -408,7 +446,7 @@ if ($compareExitCode -in 0, 1) {
 
 ```bash
 compare_exit=0
-./mssql-batch-compare \
+./dbcp \
     -source-snapshot ./data/offline/source.json \
     -destination-snapshot ./data/offline/destination.json \
     -sql-mode normalized -format html -out ./data/offline/diff.html || compare_exit=$?
@@ -444,14 +482,14 @@ MSSQL_MIGRATION_OUT='migration.sql'
 จากนั้นรันคำสั่งเปรียบเทียบตามปกติ:
 
 ```powershell
-.\mssql-batch-compare.exe -sql-mode normalized -format html -out diff.html
+.\dbcp.exe -sql-mode normalized -format html -out diff.html
 ```
 
 **Bash / Linux** — ใช้ค่าชั่วคราวเฉพาะคำสั่งนี้แทนการแก้ migration settings ใน `.env` ได้ โดยยังอ่าน source/destination DSN จาก `.env`:
 
 ```bash
 MSSQL_GENERATE_MIGRATION=true MSSQL_MIGRATION_OUT=migration.sql \
-    ./mssql-batch-compare -sql-mode normalized -format html -out diff.html
+    ./dbcp -sql-mode normalized -format html -out diff.html
 ```
 
 จะได้รายงาน `diff.html` และ migration `migration.sql` แยกกัน ห้ามกำหนดให้รายงานและ migration ใช้ไฟล์เดียวกัน
@@ -462,13 +500,13 @@ MSSQL_GENERATE_MIGRATION=true MSSQL_MIGRATION_OUT=migration.sql \
 
 ```powershell
 $env:MSSQL_GENERATE_MIGRATION = 'false'
-.\mssql-batch-compare.exe -snapshot -include-migration -sql-mode normalized -format html -timeout 3m
+.\dbcp.exe -snapshot -include-migration -sql-mode normalized -format html -timeout 3m
 ```
 
 **Bash / Linux** — ตั้ง source DSN ของแต่ละเครื่องใน `.env` ก่อนรัน:
 
 ```bash
-MSSQL_GENERATE_MIGRATION=false ./mssql-batch-compare \
+MSSQL_GENERATE_MIGRATION=false ./dbcp \
     -snapshot -include-migration -sql-mode normalized -format html -timeout 3m
 ```
 
@@ -481,7 +519,7 @@ MSSQL_GENERATE_MIGRATION=false ./mssql-batch-compare \
 เพิ่ม `-migration-out` พร้อม flags ของ input ทั้งคู่เพื่อ opt in การสร้าง script โดยไม่ต้องสร้างหรือโหลด `.env`, ไม่ใช้ DSN/environment migration settings และไม่เชื่อมต่อ SQL Server:
 
 ```powershell
-.\mssql-batch-compare.exe `
+.\dbcp.exe `
     -source-snapshot data/offline/source.json `
     -destination-snapshot data/offline/destination.json `
     -sql-mode normalized -format html -out data/offline/diff.html `
@@ -493,7 +531,7 @@ $LASTEXITCODE
 
 ```bash
 migration_exit=0
-./mssql-batch-compare \
+./dbcp \
     -source-snapshot ./data/offline/source.json \
     -destination-snapshot ./data/offline/destination.json \
     -sql-mode normalized -format html -out ./data/offline/diff.html \
@@ -627,7 +665,7 @@ Start-Process .\runs\erp\diff.html
 
 ```powershell
 powershell.exe -NoProfile -File .\examples\batch\run.ps1 `
-    -Executable 'D:\tools\mssql-batch-compare.exe' `
+    -Executable 'D:\tools\dbcp.exe' `
     -PairsDirectory 'D:\private\db-pairs'
 ```
 
@@ -666,7 +704,7 @@ powershell.exe -NoProfile -File .\examples\batch\run.ps1 -Snapshot -IncludeMigra
 ```bash
 batch_exit=0
 (
-    exe="$(realpath ./mssql-batch-compare)" || exit 2
+    exe="$(realpath ./dbcp)" || exit 2
     args=(-sql-mode normalized -format html -out diff.html -timeout 3m)
     shopt -s nullglob
     pairs=(./runs/*/)
@@ -799,14 +837,14 @@ xdg-open ./examples/report.html
 
 ```powershell
 $env:MSSQL_GENERATE_MIGRATION = 'false'
-.\mssql-batch-compare.exe
+.\dbcp.exe
 Remove-Item Env:MSSQL_GENERATE_MIGRATION
 ```
 
 **Bash / Linux** — override เฉพาะคำสั่ง ไม่เปลี่ยน environment ของ shell:
 
 ```bash
-MSSQL_GENERATE_MIGRATION=false ./mssql-batch-compare
+MSSQL_GENERATE_MIGRATION=false ./dbcp
 ```
 
 #### CLI
@@ -857,7 +895,7 @@ Object-level `DENY` อาจทำให้ metadata บางส่วนถ�
 ตัวอย่างอ่าน exit code ใน PowerShell:
 
 ```powershell
-.\mssql-batch-compare.exe -format html -out diff.html
+.\dbcp.exe -format html -out diff.html
 $LASTEXITCODE
 ```
 
@@ -865,7 +903,7 @@ $LASTEXITCODE
 
 ```bash
 compare_exit=0
-./mssql-batch-compare -format html -out diff.html || compare_exit=$?
+./dbcp -format html -out diff.html || compare_exit=$?
 case "$compare_exit" in
     0) printf 'No differences.\n' ;;
     1) printf 'Differences found; comparison succeeded.\n' ;;
@@ -889,7 +927,7 @@ esac
 ```powershell
 go test ./...
 go vet ./...
-go build -o mssql-batch-compare.exe .
+go build -o dbcp.exe .
 ```
 
 **Bash / Linux**
@@ -897,7 +935,7 @@ go build -o mssql-batch-compare.exe .
 ```bash
 go test ./...
 go vet ./...
-go build -o mssql-batch-compare .
+go build -o dbcp .
 ```
 
 Unit tests ไม่ได้แทนการทดลอง migration บน SQL Server จริง ควรทดสอบ dependency ordering, rollback และเปรียบเทียบซ้ำหลัง apply กับฐานข้อมูลทดลองก่อนใช้ script ใน production

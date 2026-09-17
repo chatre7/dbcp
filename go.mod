@@ -1,4 +1,4 @@
-module mssql-batch-compare
+module github.com/chatre7/dbcp
 
 go 1.25.0
 

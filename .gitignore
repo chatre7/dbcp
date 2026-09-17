@@ -1,5 +1,5 @@
-/mssql-batch-compare
-/mssql-batch-compare.exe
+/dbcp
+/dbcp.exe
 /diff.txt
 /diff.html
 /migration.sql

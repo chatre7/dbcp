@@ -13,14 +13,14 @@ ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/mssql-batch-compare .
+    go build -trimpath -ldflags="-s -w" -o /out/dbcp .
 
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=build /out/mssql-batch-compare /usr/local/bin/mssql-batch-compare
+COPY --from=build /out/dbcp /usr/local/bin/dbcp
 
 USER 65532:65532
 WORKDIR /work
-ENTRYPOINT ["/usr/local/bin/mssql-batch-compare"]
+ENTRYPOINT ["/usr/local/bin/dbcp"]
 CMD ["-help"]

@@ -17,7 +17,7 @@ try {
         throw '-IncludeMigration requires -Snapshot.'
     }
     if (-not $PSBoundParameters.ContainsKey('Executable')) {
-        $Executable = Join-Path $PSScriptRoot '../../mssql-batch-compare.exe'
+        $Executable = Join-Path $PSScriptRoot '../../dbcp.exe'
     }
     if (-not $PSBoundParameters.ContainsKey('PairsDirectory')) {
         $PairsDirectory = Join-Path $PSScriptRoot '../../runs'
