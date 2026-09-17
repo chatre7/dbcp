@@ -1,0 +1,132 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Go coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      percentage: ${{ steps.report.outputs.percentage }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Test with statement coverage
+        run: go test -covermode=atomic -coverprofile="$RUNNER_TEMP/coverage.out" ./...
+      - name: Generate coverage reports
+        id: report
+        shell: bash
+        run: |
+          go tool cover -func="$RUNNER_TEMP/coverage.out" | tee "$RUNNER_TEMP/coverage-functions.txt"
+          go tool cover -html="$RUNNER_TEMP/coverage.out" -o "$RUNNER_TEMP/coverage.html"
+          percentage=$(awk '$1 == "total:" {print $3}' "$RUNNER_TEMP/coverage-functions.txt")
+          [[ "$percentage" =~ ^[0-9]+([.][0-9]+)?%$ ]]
+          printf 'percentage=%s\n' "$percentage" >> "$GITHUB_OUTPUT"
+          {
+            printf '## Go statement coverage\n\n**%s**\n\n' "$percentage"
+            printf 'Download the **coverage-report** artifact for the HTML report and raw profile.\n\n'
+            printf '<details><summary>Coverage by function</summary>\n\n```text\n'
+            cat "$RUNNER_TEMP/coverage-functions.txt"
+            printf '```\n\n</details>\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-report
+          path: |
+            ${{ runner.temp }}/coverage.out
+            ${{ runner.temp }}/coverage-functions.txt
+            ${{ runner.temp }}/coverage.html
+          if-no-files-found: error
+          retention-days: 14
+
+  badge:
+    name: Publish coverage badge
+    needs: coverage
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # This job does not check out or execute repository code.
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          COVERAGE: ${{ needs.coverage.outputs.percentage }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const percentage = process.env.COVERAGE;
+            if (!/^\d+(?:\.\d+)?%$/.test(percentage) || parseFloat(percentage) > 100) {
+              throw new Error('Invalid coverage percentage');
+            }
+            const main = await github.rest.git.getRef({ owner, repo, ref: 'heads/main' });
+            if (main.data.object.sha !== context.sha) {
+              core.notice('main has advanced; leave the badge for the newer run.');
+              return;
+            }
+            const branch = 'coverage';
+            const path = 'coverage.svg';
+            const message = `Update coverage for ${context.sha}`;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="132" height="20" role="img" aria-label="coverage: ${percentage}">
+              <title>coverage: ${percentage}</title>
+              <desc>Go statement coverage for ${context.sha}</desc>
+              <clipPath id="round"><rect width="132" height="20" rx="3"/></clipPath>
+              <g clip-path="url(#round)">
+                <rect width="75" height="20" fill="#555"/>
+                <rect x="75" width="57" height="20" fill="#007ec6"/>
+              </g>
+              <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+                <text x="37.5" y="14">coverage</text>
+                <text x="103.5" y="14">${percentage}</text>
+              </g>
+            </svg>\n`;
+            let branchExists = true;
+            try {
+              await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              branchExists = false;
+            }
+            if (!branchExists) {
+              const tree = await github.rest.git.createTree({
+                owner, repo, tree: [{ path, mode: '100644', type: 'blob', content: svg }]
+              });
+              const commit = await github.rest.git.createCommit({
+                owner, repo, message, tree: tree.data.sha, parents: []
+              });
+              await github.rest.git.createRef({
+                owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha
+              });
+              return;
+            }
+            let sha;
+            try {
+              const file = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
+              if (Buffer.from(file.data.content, 'base64').toString('utf8') === svg) return;
+              sha = file.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner, repo, path, branch, message, sha,
+              content: Buffer.from(svg).toString('base64')
+            });

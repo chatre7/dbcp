@@ -1,5 +1,8 @@
 # dbcp
 
+[![Coverage workflow](https://github.com/chatre7/dbcp/actions/workflows/coverage.yml/badge.svg?branch=main)](https://github.com/chatre7/dbcp/actions/workflows/coverage.yml)
+[![Go statement coverage](https://raw.githubusercontent.com/chatre7/dbcp/coverage/coverage.svg)](https://github.com/chatre7/dbcp/actions/workflows/coverage.yml)
+
 CLI ภาษา Go สำหรับเปรียบเทียบ schema ของ SQL Server และเลือกสร้าง migration SQL เพื่อปรับ **destination ให้ตรงกับ source** ภายในขอบเขตที่รองรับ
 
 **โปรแกรมอ่าน metadata เท่านั้น ไม่แก้ไขฐานข้อมูลและไม่ execute migration อัตโนมัติ** รายงานเป็นข้อความหรือ HTML แบบ standalone
@@ -939,3 +942,20 @@ go build -o dbcp .
 ```
 
 Unit tests ไม่ได้แทนการทดลอง migration บน SQL Server จริง ควรทดสอบ dependency ordering, rollback และเปรียบเทียบซ้ำหลัง apply กับฐานข้อมูลทดลองก่อนใช้ script ใน production
+
+### Coverage บน GitHub
+
+Workflow [Coverage](https://github.com/chatre7/dbcp/actions/workflows/coverage.yml) รัน Go tests พร้อม statement coverage บน Ubuntu เมื่อ push เข้า `main`, เปิด/อัปเดต pull request ที่เข้า `main` หรือกด **Run workflow**:
+
+- Badge ด้านบนแสดงเปอร์เซ็นต์จากผลทดสอบที่ผ่านบน `main` และอัปเดตอัตโนมัติ ไม่ใช่ตัวเลขที่กรอกไว้ใน README
+- ในแต่ละ workflow run เปิดหน้า **Summary** เพื่อดูเปอร์เซ็นต์รวมและ coverage ราย function จาก job **Go coverage**
+- ดาวน์โหลด artifact **coverage-report** เพื่อดู `coverage.html`, raw profile `coverage.out` และ `coverage-functions.txt` เก็บไว้ 14 วัน
+- Pull request สร้างรายงานของตัวเอง แต่ไม่เปลี่ยน badge ของ `main` หาก tests ล้มเหลว badge จะคงผลสำเร็จเดิม ให้ตรวจ workflow status ประกอบ
+- Workflow เก็บเฉพาะ `coverage.svg` ใน branch `coverage` แยกจาก source code ใช้ `GITHUB_TOKEN` ที่ GitHub จัดให้ ไม่ต้องตั้ง Codecov token หรือ service ภายนอก และไม่ commit กลับเข้า `main`
+- ตัวเลขเป็น coverage ของชุด Go tests ไม่รวม smoke tests ที่รัน CLI/Docker/SQL Server แยก และอาจต่างจากการรันบน Windows เนื่องจาก platform-specific paths
+
+ตรวจ coverage บนเครื่องตัวเองได้ด้วยคำสั่งเดียวกันทั้ง Bash และ PowerShell:
+
+```bash
+go test -cover ./...
+```
